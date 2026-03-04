@@ -1,15 +1,16 @@
 """
-ZA Support Health Check Backend v11.1
+ZA Support Health Check Backend v11.2
 Production deployment - Render.com
-Includes diagnostic upload endpoint for za_diag_v3.sh
+Includes: diagnostic upload, ISP monitor, automation layer (event bus, scheduler, monitors)
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.core.database import get_engine, Base
-from app.api import health, devices, network, alerts, dashboard, diagnostics, isp, agent
+from app.api import health, devices, network, alerts, dashboard, diagnostics, isp, agent, system
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
+from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -19,19 +20,22 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
-    logger.info("Starting ZA Support Backend v11.1...")
+    logger.info("Starting ZA Support Backend v11.2...")
     Base.metadata.create_all(bind=get_engine())
     logger.info("Database tables verified.")
     start_isp_scheduler()
+    start_automation_scheduler()
+    logger.info("All schedulers started.")
     yield
+    stop_automation_scheduler()
     stop_isp_scheduler()
-    logger.info("Shutting down ZA Support Backend v11.1.")
+    logger.info("Shutting down ZA Support Backend v11.2.")
 
 
 app = FastAPI(
     title="ZA Support Health Check API",
-    version="11.1.0",
-    description="Device health monitoring, diagnostic ingestion, and predictive alerting for ZA Support clients.",
+    version="11.2.0",
+    description="Device health monitoring, diagnostic ingestion, automation layer, and predictive alerting for ZA Support clients.",
     lifespan=lifespan,
 )
 
@@ -52,13 +56,14 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboar
 app.include_router(diagnostics.router, prefix="/api/v1/diagnostics", tags=["Diagnostics"])
 app.include_router(isp.router, prefix="/api/v1/isp", tags=["ISP Monitor"])
 app.include_router(agent.router, prefix="/api/v1/agent", tags=["Agent"])
+app.include_router(system.router, prefix="/api/v1/system", tags=["System"])
 
 
 @app.get("/", tags=["Root"])
 async def root():
     return {
         "service": "ZA Support Health Check API",
-        "version": "11.1.0",
+        "version": "11.2.0",
         "status": "running",
         "docs": "/docs",
         "endpoints": {
@@ -70,6 +75,9 @@ async def root():
             "network": "/api/v1/network",
             "isp": "/api/v1/isp",
             "agent": "/api/v1/agent",
+            "system_events": "/api/v1/system/events",
+            "system_jobs": "/api/v1/system/jobs",
+            "system_status": "/api/v1/system/status",
         }
     }
 

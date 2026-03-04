@@ -367,3 +367,102 @@ class ISPOutage(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     provider = relationship("ISPProvider", back_populates="outages")
+
+
+# ══════════════════════════════════════════════════════════════
+# Automation Layer — Event Bus, Scheduler, Monitors
+# ══════════════════════════════════════════════════════════════
+
+class SystemEvent(Base):
+    """Central event bus — every automation action produces an event."""
+    __tablename__ = "system_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    source = Column(String(64), nullable=False, index=True)
+    severity = Column(String(16), default="info")
+    summary = Column(Text, nullable=False)
+    detail = Column(JSON, nullable=True)
+    device_serial = Column(String(64), nullable=True, index=True)
+    client_id = Column(String(128), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_sysevent_type_created", "event_type", "created_at"),
+        Index("ix_sysevent_source_created", "source", "created_at"),
+    )
+
+
+class ScheduledJob(Base):
+    """Registry of scheduled automation jobs."""
+    __tablename__ = "scheduled_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    schedule = Column(String(128), nullable=False)
+    enabled = Column(Boolean, default=True)
+    last_run = Column(DateTime, nullable=True)
+    next_run = Column(DateTime, nullable=True)
+    last_status = Column(String(16), default="pending")
+    last_error = Column(Text, nullable=True)
+    run_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_schedjob_enabled", "enabled"),
+    )
+
+
+class PatchStatus(Base):
+    """macOS patch/update status per device."""
+    __tablename__ = "patch_status"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_serial = Column(String(64), nullable=False, index=True)
+    client_id = Column(String(128), nullable=True, index=True)
+    current_os = Column(String(32), nullable=True)
+    latest_os = Column(String(32), nullable=True)
+    pending_updates = Column(JSON, nullable=True)
+    days_behind = Column(Integer, default=0)
+    last_checked = Column(DateTime, default=datetime.utcnow)
+    notified_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_patch_serial_checked", "device_serial", "last_checked"),
+    )
+
+
+class BackupStatus(Base):
+    """Backup health per device — Time Machine + third-party agents."""
+    __tablename__ = "backup_status"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_serial = Column(String(64), nullable=False, index=True)
+    client_id = Column(String(128), nullable=True, index=True)
+    time_machine_enabled = Column(Boolean, nullable=True)
+    last_tm_backup = Column(DateTime, nullable=True)
+    tm_days_stale = Column(Integer, default=0)
+    third_party_agent = Column(String(64), nullable=True)
+    third_party_last_backup = Column(DateTime, nullable=True)
+    no_backup = Column(Boolean, default=False)
+    last_checked = Column(DateTime, default=datetime.utcnow)
+    notified_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_backup_serial_checked", "device_serial", "last_checked"),
+    )
+
+
+class NotificationLog(Base):
+    """Audit trail of all notifications sent."""
+    __tablename__ = "notification_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    channel = Column(String(16), nullable=False)  # email, slack
+    recipient = Column(String(256), nullable=True)
+    subject = Column(String(512), nullable=True)
+    event_id = Column(Integer, nullable=True)
+    status = Column(String(16), default="sent")
+    error = Column(Text, nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow, index=True)

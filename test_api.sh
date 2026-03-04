@@ -139,6 +139,110 @@ RESP=$(curl -s "$BASE_URL/api/v1/diagnostics/" \
   -H "X-API-Key: ${API_KEY}")
 echo "$RESP" | grep -q '\[' && green "GET /diagnostics/" || red "GET /diagnostics/ → ${RESP}"
 
+# ============================================================
+# ISP Outage Monitor Tests (14-24)
+# ============================================================
+
+header "14. Seed ISP Providers"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/isp/seed" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '"providers_seeded"' && green "POST /isp/seed" || red "POST /isp/seed → ${RESP}"
+
+header "15. List ISP Providers"
+RESP=$(curl -s "$BASE_URL/api/v1/isp/providers" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '"slug"' && green "GET /isp/providers" || red "GET /isp/providers → ${RESP}"
+
+# Extract first provider ID for subsequent tests
+PROVIDER_ID=$(echo "$RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
+[ -z "$PROVIDER_ID" ] && PROVIDER_ID=1
+
+header "16. Get Single ISP Provider"
+RESP=$(curl -s "$BASE_URL/api/v1/isp/providers/${PROVIDER_ID}" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '"name"' && green "GET /isp/providers/{id}" || red "GET /isp/providers/{id} → ${RESP}"
+
+header "17. Create ISP Provider"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/isp/providers" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d '{
+    "name": "NTT Data",
+    "slug": "ntt-data",
+    "probe_targets": ["https://www.nttdata.com"],
+    "underlying_provider": "NTT"
+  }')
+echo "$RESP" | grep -q '"slug"' && green "POST /isp/providers" || red "POST /isp/providers → ${RESP}"
+
+header "18. Submit Status Check"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/isp/checks" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d "{
+    \"provider_id\": ${PROVIDER_ID},
+    \"source\": \"http_probe\",
+    \"status\": \"operational\",
+    \"response_time_ms\": 142.5,
+    \"http_status_code\": 200,
+    \"is_healthy\": true
+  }")
+echo "$RESP" | grep -q '"source"' && green "POST /isp/checks" || red "POST /isp/checks → ${RESP}"
+
+header "19. Get Check History"
+RESP=$(curl -s "$BASE_URL/api/v1/isp/checks/${PROVIDER_ID}?hours=24" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '\[' && green "GET /isp/checks/{provider_id}" || red "GET /isp/checks/{provider_id} → ${RESP}"
+
+header "20. Submit Agent Heartbeat"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/isp/heartbeat" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d "{
+    \"machine_id\": \"TEST-UUID-001\",
+    \"provider_id\": ${PROVIDER_ID},
+    \"state\": \"connected\",
+    \"latency_ms\": 12.3,
+    \"packet_loss_pct\": 0.0,
+    \"gateway_reachable\": true,
+    \"dns_reachable\": true
+  }")
+echo "$RESP" | grep -q '"success"' && green "POST /isp/heartbeat" || red "POST /isp/heartbeat → ${RESP}"
+
+header "21. Get Agent Connectivity History"
+RESP=$(curl -s "$BASE_URL/api/v1/isp/connectivity/TEST-UUID-001?hours=24" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '\[' && green "GET /isp/connectivity/{machine_id}" || red "GET /isp/connectivity/{machine_id} → ${RESP}"
+
+header "22. Create Manual Outage"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/isp/outages" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d "{
+    \"provider_id\": ${PROVIDER_ID},
+    \"severity\": \"outage\",
+    \"description\": \"Test outage for API validation\"
+  }")
+echo "$RESP" | grep -q '"severity"' && green "POST /isp/outages" || red "POST /isp/outages → ${RESP}"
+OUTAGE_ID=$(echo "$RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
+
+header "23. List Current Outages"
+RESP=$(curl -s "$BASE_URL/api/v1/isp/outages/current" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '\[' && green "GET /isp/outages/current" || red "GET /isp/outages/current → ${RESP}"
+
+# Resolve the outage if we got an ID
+if [ -n "$OUTAGE_ID" ]; then
+  header "23b. Resolve Outage"
+  RESP=$(curl -s -X POST "$BASE_URL/api/v1/isp/outages/${OUTAGE_ID}/resolve" \
+    -H "X-API-Key: ${API_KEY}")
+  echo "$RESP" | grep -q '"success"' && green "POST /isp/outages/{id}/resolve" || red "POST /isp/outages/{id}/resolve → ${RESP}"
+fi
+
+header "24. ISP Dashboard"
+RESP=$(curl -s "$BASE_URL/api/v1/isp/dashboard" \
+  -H "X-API-Key: ${API_KEY}")
+echo "$RESP" | grep -q '"total_providers"' && green "GET /isp/dashboard" || red "GET /isp/dashboard → ${RESP}"
+
 # ---- Summary ----
 echo ""
 echo "============================================"
