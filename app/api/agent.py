@@ -103,6 +103,7 @@ async def upload_diagnostic(
     db.refresh(report)
 
     # Store structured snapshot + extract time-series metrics
+    snapshot_id = None
     try:
         from app.modules.diagnostics.service import upsert_device, store_snapshot
         device_id = upsert_device(db, payload.serial, payload.client_id, payload.payload)
@@ -110,6 +111,21 @@ async def upload_diagnostic(
         logger.info(f"Diagnostic snapshot stored: snapshot_id={snapshot_id}")
     except Exception as e:
         logger.warning(f"Diagnostic storage service error (non-fatal): {e}")
+
+    # Emit event so subscribers (clients, workshop) can react
+    try:
+        from app.core.event_bus import emit_event
+        import asyncio
+        recommendations = payload.payload.get("recommendations", []) if isinstance(payload.payload, dict) else []
+        asyncio.create_task(emit_event("diagnostics.upload_received", {
+            "serial":          payload.serial,
+            "client_id":       payload.client_id,
+            "snapshot_id":     snapshot_id,
+            "recommendations": recommendations,
+            "risk_level":      (payload.payload or {}).get("risk_level") if isinstance(payload.payload, dict) else None,
+        }))
+    except Exception as e:
+        logger.warning(f"Event emit failed (non-fatal): {e}")
 
     return {"status": "ok", "id": report.id, "serial": report.serial}
 

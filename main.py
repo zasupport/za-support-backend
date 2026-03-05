@@ -19,6 +19,8 @@ from app.modules.breach_scanner.router import router as breach_scanner_router
 from app.modules.forensics import forensics_router
 from app.modules.diagnostics.router import router as diagnostic_storage_router
 from app.modules.clients.router import router as clients_router
+from app.modules.workshop.router import router as workshop_router
+from app.modules.workshop import notifications as _workshop_notifications  # registers subscribers
 from app.api.agent_delivery import router as agent_delivery_router
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
 from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
@@ -78,6 +80,7 @@ app.include_router(breach_scanner_router, prefix="/api/v1/breach-scanner")
 if forensics_router:
     app.include_router(forensics_router, prefix="/api/v1/forensics", tags=["Forensics"])
 app.include_router(clients_router)
+app.include_router(workshop_router)
 app.include_router(agent_delivery_router)
 
 
@@ -107,6 +110,7 @@ async def root():
             "forensics": "/api/v1/forensics",
             "diagnostic_storage": "/api/v1/diagnostics/devices",
             "clients": "/api/v1/clients",
+            "workshop": "/api/v1/workshop",
         }
     }
 
