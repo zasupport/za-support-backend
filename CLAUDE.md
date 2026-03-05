@@ -108,54 +108,28 @@ ISP_MONITOR_ALERT_COOLDOWN_MINS=30
 - [x] Dual-token agent auth rotation (AGENT_AUTH_TOKEN_OLD)
 - [x] DiagnosticSubmission endpoint — receives V3 JSON push
 - [x] CC3: ZA Vault module — app/modules/vault/ (Fernet encryption, CRUD, audit log, commit 232e1ae)
+- [x] CC4: ZA Shield Agent — agent/za_shield_agent.sh + app/modules/shield_agent/ (real-time macOS security monitor, shield_events table, POST/GET /api/v1/shield/events)
+- [x] App Intelligence module — app/modules/app_intelligence/ (process metrics, app health scoring, startup analysis, productivity scoring, fleet health, POPIA deletion — 16 endpoints at /api/v1/app-intelligence)
+- [x] Interaction Analytics module — app/modules/interaction_analytics/ (keystroke dynamics, frustration scoring, POPIA compliant, baselines, anomaly detection — 11 endpoints at /api/v1/interaction-analytics)
 
 ---
 
 ## WHAT IS PENDING (in priority order)
 
-### NEXT: CC4 — ZA Shield Agent Module
-Location: app/modules/shield_agent/ (server-side)
-           agent/za_shield_agent.sh (client-side LaunchDaemon)
+### NEXT: Frontend Dashboard
+- V11 frontend (device list, diagnostics viewer, ISP status, alerts, app intelligence views)
 
-Server-side: receives real-time security events from client Macs.
-Client-side: macOS log stream monitor. Watches for:
-  - LaunchDaemon/LaunchAgent creation
-  - Kernel extension loads
-  - Auth failures (5+ in 60s = alert)
-  - SIP/Gatekeeper policy changes
-  - Suspicious process spawns from /tmp
+### AFTER: Monthly Report Generation Engine
+- Auto-generate PDF reports from App Intelligence + Interaction Analytics data
+- Use reportlab (Platypus), A4, match CyberShield template structure
 
-Endpoint: POST /api/v1/shield/events
-Schema: { serial, hostname, event_type, severity, details, timestamp }
-Events stored in shield_events TimescaleDB hypertable.
-Commit: "feat: ZA Shield Agent — real-time macOS security monitor"
-
-### AFTER: App Intelligence Module
-Location: app/modules/app_intelligence/
-Source: /Users/courtneybentley/Downloads/files-10/Health Check v11 Module App Intelligence INSTRUCTIONS.md
-
-Agent samples running processes every 60s. Aggregates to 5-min windows.
-Tracks: CPU, memory, disk I/O, energy impact, foreground app, crash/hang rates.
-Generates: app health scores, startup impact analysis, productivity scoring.
-TimescaleDB hypertable: app_metrics.
-Endpoint: POST /api/v1/intelligence/app-metrics
-
-### AFTER: Interaction Analytics Module
-Location: app/modules/interaction_analytics/
-Source: /Users/courtneybentley/Downloads/files-10/Health Check v11 Module Interaction Analytics INSTRUCTIONS.md
-
-POPIA compliant — NO keystrokes/characters captured. Behavioral timing only.
-Tracks: typing speed WPM, dwell/flight times, mouse patterns, frustration scoring.
-Generates: frustration score, productivity score, UX friction alerts.
-TimescaleDB hypertable: interaction_metrics.
-Endpoint: POST /api/v1/intelligence/interaction-metrics
+### AFTER: CyberShield Integration
+- Network security assessment service, R 1,499/month
+- Integrate with existing shield_events and shield agent
 
 ### FUTURE
 
-- V11 frontend dashboard (device list, diagnostics viewer, ISP status, alerts)
-- Monthly report generation engine
 - Per-client .pkg builder (embeds token + client ID)
-- CyberShield integration
 - Workshop/PTG trigger automation from diagnostic findings
 
 ---
@@ -164,7 +138,7 @@ Endpoint: POST /api/v1/intelligence/interaction-metrics
 
 Repo: https://github.com/zasupport/za-support-backend
 Branch: main
-Latest: cf6a6ca (fix: remove dangling run_threat_intel call)
+Latest: chore: update CLAUDE.md — all CC modules complete
 
 Commit message format: "feat/fix/chore: description"
 Deploy: auto on push to main → Render rebuilds in ~60s
