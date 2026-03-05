@@ -8,7 +8,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.models import DiagnosticReport, HealthData, Device
+from app.models.models import DiagnosticReport, HealthData, Device, WorkshopDiagnostic
 from app.services.event_bus import publish
 
 logger = logging.getLogger(__name__)

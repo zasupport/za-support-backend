@@ -10,6 +10,8 @@ import tempfile
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from typing import Optional
 
 import httpx
@@ -20,12 +22,12 @@ from app.models.models import NotificationLog, SystemEvent
 logger = logging.getLogger(__name__)
 
 # SMTP config — set HC_NOTIFY_SMTP_* on Render (see render.yaml)
-SMTP_HOST       = os.getenv("HC_NOTIFY_SMTP_HOST", "mail.hexonline.co.za")
+SMTP_HOST       = os.getenv("HC_NOTIFY_SMTP_HOST", "")
 SMTP_PORT       = int(os.getenv("HC_NOTIFY_SMTP_PORT", "587"))
-SMTP_USER       = os.getenv("HC_NOTIFY_SMTP_USER", "Courtney@zasupport.com")
+SMTP_USER       = os.getenv("HC_NOTIFY_SMTP_USER", "")
 SMTP_PASS       = os.getenv("HC_NOTIFY_SMTP_PASS", "")
-EMAIL_FROM      = os.getenv("HC_NOTIFY_EMAIL_FROM", "ZA Support <Courtney@zasupport.com>")
-NOTIFY_EMAIL_TO = os.getenv("HC_NOTIFY_EMAIL_TO", "courtney@zasupport.com")
+EMAIL_FROM      = os.getenv("HC_NOTIFY_EMAIL_FROM", "")
+NOTIFY_EMAIL_TO = os.getenv("HC_NOTIFY_EMAIL_TO", "")
 SLACK_WEBHOOK   = os.getenv("HC_NOTIFY_SLACK_WEBHOOK", "")
 
 NOTIFY_SEVERITIES = {"critical", "high"}
@@ -78,10 +80,51 @@ def _send_starttls(to: str, msg: MIMEMultipart) -> bool:
     return True
 
 
+def send_email_with_attachment(
+    to: str, subject: str, body: str,
+    attachment: bytes, filename: str,
+    db: Optional[Session] = None,
+) -> bool:
+    """Send email with a binary attachment (e.g. PDF report)."""
+    if not SMTP_HOST or not SMTP_PASS or not to:
+        logger.warning("SMTP not configured — skipping attachment email.")
+        return False
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"]    = EMAIL_FROM
+    msg["To"]      = to
+    msg.attach(MIMEText(body, "plain"))
+
+    part = MIMEBase("application", "octet-stream")
+    part.set_payload(attachment)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+    msg.attach(part)
+
+    success = False
+    error_msg = None
+    try:
+        success = _send_ntlm(to, msg)
+        if not success:
+            success = _send_starttls(to, msg)
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Attachment email send failed: {e}")
+
+    if db:
+        db.add(NotificationLog(
+            channel="email", recipient=to, subject=subject,
+            status="sent" if success else "failed", error=error_msg,
+        ))
+        db.flush()
+    return success
+
+
 def send_email(to: str, subject: str, body: str, db: Optional[Session] = None, event_id: Optional[int] = None) -> bool:
     """Send email via SMTP (NTLM first, STARTTLS fallback)."""
-    if not SMTP_PASS:
-        logger.warning("HC_NOTIFY_SMTP_PASS not configured — skipping email.")
+    if not SMTP_HOST or not SMTP_PASS or not to:
+        logger.warning("SMTP not configured (HC_NOTIFY_SMTP_HOST/PASS/EMAIL_TO not set) — skipping email.")
         return False
 
     msg = _build_msg(to, subject, body)
