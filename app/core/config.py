@@ -41,6 +41,9 @@ class Settings:
     DETAILED_RETENTION_DAYS: int = 90
     AGGREGATED_RETENTION_YEARS: int = 2
 
+    # --- Formbricks Webhooks ---
+    FORMBRICKS_WEBHOOK_SECRET: str = os.getenv("FORMBRICKS_WEBHOOK_SECRET", "")
+
     # --- ISP Outage Monitor ---
     ISP_MONITOR_ENABLED: bool = os.getenv("ISP_MONITOR_ENABLED", "false").lower() == "true"
     ISP_MONITOR_STATUS_PAGE_CHECK_INTERVAL: int = int(os.getenv("ISP_MONITOR_STATUS_PAGE_CHECK_INTERVAL", "300"))
