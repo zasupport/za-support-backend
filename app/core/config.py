@@ -15,6 +15,7 @@ class Settings:
     API_KEY: str = os.getenv("API_KEY", "")
     ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")
     AGENT_AUTH_TOKEN: str = os.getenv("AGENT_AUTH_TOKEN", "")
+    AGENT_AUTH_TOKEN_OLD: str = os.getenv("AGENT_AUTH_TOKEN_OLD", "")
     
     # --- Server ---
     PORT: str = os.getenv("PORT", "8080")
