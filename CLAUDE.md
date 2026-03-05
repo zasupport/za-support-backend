@@ -107,7 +107,11 @@ main.py             ← App entry point, all routers registered
 | 008_breach_scanner.sql | breach_consent, scan_sessions, scan_findings, etc. | ✓ applied |
 | 009_forensics.sql | forensic_investigations, forensic_findings, forensic_audit_log | ✓ applied |
 | 010_diagnostic_storage.sql | client_devices, diagnostic_snapshots, device_metrics | ✓ applied |
-| 011_clients.sql | clients, client_setup, client_onboarding_tasks, client_checkins | ⚠ pending — auto-runs on next Render deploy via migrate.py |
+| 011_clients.sql | clients, client_setup, client_onboarding_tasks, client_checkins | ✓ applied |
+| 012_interaction_consent.sql | interaction_consent | ✓ applied |
+| 013_workshop.sql | workshop_jobs, workshop_line_items, workshop_job_history | ✓ applied |
+| 014_reports.sql | generated_reports | ✓ applied |
+| 015_client_notes.sql | client_notes | ✓ applied — auto-runs on next Render deploy |
 
 ---
 
@@ -156,7 +160,11 @@ NETWORKING_INTEGRATIONS_ENABLED=false
 - [x] Forensics — app/modules/forensics/ (30+ tools, POPIA consent gate, chain of custody)
 - [x] ISP Networking Integrations — isp_outage_monitor/ (Cloudflare Radar, IODA, RIPE Atlas, BGP, webhooks)
 - [x] Diagnostic Storage — app/modules/diagnostics/ (device registry, snapshots, time-series metrics)
-- [x] Clients — app/modules/clients/ (intake form, Formbricks webhooks, task checklists, check-ins)
+- [x] Clients — app/modules/clients/ (intake form, Formbricks webhooks, task checklists, check-ins, notes, health score, status, morning overview, site visit brief)
+- [x] Workshop — app/modules/workshop/ (job cards, line items, status history, auto-creation from diagnostics, backup failure detection, remote access detection)
+- [x] Reports — app/modules/reports/ (CyberPulse PDF generation + delivery, generated_reports log)
+- [x] Automation — 12 scheduled jobs: patch monitor, backup monitor, report generator, weekly digest, morning email, stale diagnostic alerter, pre-visit reminders, SLA monthly reports, critical escalation, stale device check, security posture scan, event cleanup, heartbeat rollup
+- [x] Event subscribers: report_delivery (auto PDF on CRITICAL/HIGH), post_visit_followup (email on job done), isp_outage_notifier (notify affected clients), workshop/notifications (auto job cards from diagnostics)
 - [x] migrate.py — auto-runs all 0*.sql migrations on every Render deploy (idempotent)
 - [x] deploy.sh — one-command deploy (git push → Render auto-deploys + runs migrations)
 
