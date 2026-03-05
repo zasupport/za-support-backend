@@ -29,8 +29,7 @@ CREATE TABLE IF NOT EXISTS breach_consent (
     ip_address      INET,
     notes           TEXT,
 
-    CONSTRAINT uq_breach_consent_active_client
-        UNIQUE (client_id) WHERE (is_active = TRUE)
+    CONSTRAINT uq_breach_consent_client UNIQUE (client_id)
 );
 
 CREATE INDEX idx_breach_consent_client ON breach_consent (client_id);
