@@ -104,16 +104,9 @@ main.py             ← App entry point, all routers registered
 | 005_shield_events.sql | shield_events | ✓ applied |
 | 006_app_intelligence.sql | app_resource_metrics, app_daily_summary, etc. | ✓ applied |
 | 007_interaction_analytics.sql | interaction_metrics, interaction_baselines, etc. | ✓ applied |
-| 008_breach_scanner.sql | breach_consent, scan_sessions, scan_findings, etc. | ⚠ NOT RUN |
-| 009_forensics.sql | forensic_investigations, forensic_findings, forensic_audit_log | ⚠ NOT RUN |
-| 010_diagnostic_storage.sql | client_devices, diagnostic_snapshots, device_metrics | ⚠ NOT RUN |
-
-Run pending migrations:
-```bash
-psql $DATABASE_URL < migrations/008_breach_scanner.sql
-psql $DATABASE_URL < migrations/009_forensics.sql
-psql $DATABASE_URL < migrations/010_diagnostic_storage.sql
-```
+| 008_breach_scanner.sql | breach_consent, scan_sessions, scan_findings, etc. | ✓ applied |
+| 009_forensics.sql | forensic_investigations, forensic_findings, forensic_audit_log | ✓ applied |
+| 010_diagnostic_storage.sql | client_devices, diagnostic_snapshots, device_metrics | ✓ applied |
 
 ---
 
