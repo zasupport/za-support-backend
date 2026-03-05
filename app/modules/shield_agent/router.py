@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from datetime import datetime
-from typing import Optional
+from sqlalchemy.orm import Session
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List
+
 from app.core.agent_auth import verify_agent_token
+from app.core.database import get_db
 
 router = APIRouter(prefix="/api/v1/shield", tags=["shield"])
 
@@ -17,22 +20,69 @@ class ShieldEvent(BaseModel):
     timestamp: Optional[str] = None
 
 
-@router.post("/events")
-async def receive_shield_event(event: ShieldEvent, token: str = Depends(verify_agent_token)):
-    # TODO: store in shield_events table (005_shield_events.sql)
-    if event.severity == "CRITICAL":
-        # TODO: webhook alert to Slack/Teams
-        pass
+@router.post("/events", dependencies=[Depends(verify_agent_token)])
+def receive_shield_event(event: ShieldEvent, db: Session = Depends(get_db)):
+    ts = None
+    if event.timestamp:
+        try:
+            ts = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            ts = None
+
+    db.execute(
+        """
+        INSERT INTO shield_events
+            (serial, hostname, severity, event_type, path, detail, timestamp)
+        VALUES
+            (:serial, :hostname, :severity, :event_type, :path, :detail,
+             COALESCE(:timestamp, NOW()))
+        """,
+        {
+            "serial": event.serial,
+            "hostname": event.hostname,
+            "severity": event.severity,
+            "event_type": event.event_type,
+            "path": event.path,
+            "detail": event.detail,
+            "timestamp": ts,
+        },
+    )
+    db.commit()
 
     return {"status": "received", "severity": event.severity, "event_type": event.event_type}
 
 
-@router.get("/events")
-async def list_shield_events(
-    serial: Optional[str] = None,
-    severity: Optional[str] = None,
-    last_hours: int = 24,
-    token: str = Depends(verify_agent_token),
+@router.get("/events", dependencies=[Depends(verify_agent_token)])
+def list_shield_events(
+    serial: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    last_hours: int = Query(24),
+    db: Session = Depends(get_db),
 ):
-    # TODO: query shield_events table
-    return {"events": [], "filter": {"serial": serial, "severity": severity, "last_hours": last_hours}}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=last_hours)
+
+    query = "SELECT * FROM shield_events WHERE timestamp >= :cutoff"
+    params = {"cutoff": cutoff}
+
+    if serial:
+        query += " AND serial = :serial"
+        params["serial"] = serial
+
+    if severity:
+        query += " AND severity = :severity"
+        params["severity"] = severity
+
+    query += " ORDER BY timestamp DESC LIMIT 500"
+
+    result = db.execute(query, params)
+    rows = result.fetchall()
+
+    events = []
+    for row in rows:
+        events.append(dict(row._mapping))
+
+    return {
+        "events": events,
+        "count": len(events),
+        "filter": {"serial": serial, "severity": severity, "last_hours": last_hours},
+    }
