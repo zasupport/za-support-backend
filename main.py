@@ -15,6 +15,7 @@ from app.modules.shield_agent.router import router as shield_router
 from app.modules.app_intelligence.router import router as app_intelligence_router
 from app.modules.interaction_analytics.router import router as interaction_analytics_router
 from app.modules.breach_scanner.router import router as breach_scanner_router
+from app.modules.forensics import forensics_router
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
 from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
 import logging
@@ -69,6 +70,8 @@ app.include_router(shield_router)
 app.include_router(app_intelligence_router)
 app.include_router(interaction_analytics_router)
 app.include_router(breach_scanner_router, prefix="/api/v1/breach-scanner")
+if forensics_router:
+    app.include_router(forensics_router, prefix="/api/v1/forensics", tags=["Forensics"])
 
 
 @app.get("/", tags=["Root"])
@@ -94,6 +97,7 @@ async def root():
             "app_intelligence": "/api/v1/app-intelligence",
             "interaction_analytics": "/api/v1/interaction-analytics",
             "breach_scanner": "/api/v1/breach-scanner",
+            "forensics": "/api/v1/forensics",
         }
     }
 
