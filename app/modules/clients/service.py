@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 # Standard onboarding tasks created for every new client
 _BASE_TASKS = [
-    "Run CyberPulse Scout diagnostic on client machine",
-    "Generate CyberPulse Assessment report",
+    "Run Health Check Scout diagnostic on client machine",
+    "Generate Health Check Assessment report",
     "Deliver report to client and walk through findings",
     "Set up client in ZA Vault (password manager)",
     "Verify backup setup: CCC (bootable clone) + Time Machine (versioned history)",

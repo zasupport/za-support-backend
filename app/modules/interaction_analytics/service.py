@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta, date
@@ -79,11 +80,11 @@ def _insert_single(db: Session, device_id: str, client_id: str, entry: Interacti
 def _check_consent(db: Session, client_id: str) -> bool:
     """Return True if client has active POPIA consent for interaction analytics."""
     row = db.execute(
-        """
+        text("""
         SELECT consented FROM interaction_consent
         WHERE client_id = :c AND consented = TRUE AND revoked_at IS NULL
         LIMIT 1
-        """,
+        """),
         {"c": client_id},
     ).fetchone()
     return row is not None
@@ -94,13 +95,13 @@ def grant_consent(db: Session, client_id: str, device_id: str, consent_text: str
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     db.execute(
-        """
+        text("""
         INSERT INTO interaction_consent (client_id, device_id, consented, consented_at, consent_text)
         VALUES (:c, :d, TRUE, :now, :txt)
         ON CONFLICT (client_id) DO UPDATE
         SET consented = TRUE, consented_at = :now, device_id = :d,
             revoked_at = NULL, consent_text = :txt, updated_at = :now
-        """,
+        """),
         {"c": client_id, "d": device_id, "now": now, "txt": consent_text},
     )
     db.commit()
@@ -112,17 +113,17 @@ def revoke_consent(db: Session, client_id: str) -> dict:
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     db.execute(
-        """
+        text("""
         UPDATE interaction_consent
         SET consented = FALSE, revoked_at = :now, updated_at = :now
         WHERE client_id = :c
-        """,
+        """),
         {"c": client_id, "now": now},
     )
     # POPIA right to erasure — delete all interaction data for this client
     for table in ["interaction_metrics", "interaction_daily_summary",
                   "interaction_baselines", "frustration_events"]:
-        db.execute(f"DELETE FROM {table} WHERE client_id = :c", {"c": client_id})
+        db.execute(text(f"DELETE FROM {table} WHERE client_id = :c"), {"c": client_id})
     db.commit()
     return {"client_id": client_id, "consented": False, "data_erased": True}
 
@@ -130,7 +131,7 @@ def revoke_consent(db: Session, client_id: str) -> dict:
 def get_consent_status(db: Session, client_id: str) -> dict:
     """Return current consent status for a client."""
     row = db.execute(
-        "SELECT consented, consented_at, revoked_at FROM interaction_consent WHERE client_id = :c",
+        text("SELECT consented, consented_at, revoked_at FROM interaction_consent WHERE client_id = :c"),
         {"c": client_id},
     ).fetchone()
     if not row:
