@@ -36,7 +36,7 @@ services:
       - key: HC_NOTIFY_SMTP_USER
         value: "Courtney@zasupport.com"
       - key: HC_NOTIFY_SMTP_PASS
-        sync: false
+        value: "!Plutonium234!"
       - key: HC_NOTIFY_EMAIL_TO
         value: "courtney@zasupport.com"
 
