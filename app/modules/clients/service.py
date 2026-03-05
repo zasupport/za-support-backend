@@ -6,8 +6,8 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.modules.clients.models import Client, ClientSetup, ClientOnboardingTask, ClientCheckin
-from app.modules.clients.schemas import ClientIntakePayload, ClientCheckinPayload, TaskStatusUpdate
+from app.modules.clients.models import Client, ClientSetup, ClientOnboardingTask, ClientCheckin, ClientNote
+from app.modules.clients.schemas import ClientIntakePayload, ClientCheckinPayload, TaskStatusUpdate, NoteIn
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +244,36 @@ def get_site_visit_brief(db: Session, client_id: str) -> Optional[Dict[str, Any]
         "latest_checkin": latest_checkin,
         "open_workshop_jobs": open_jobs,
     }
+
+
+def add_note(db: Session, client_id: str, payload: NoteIn) -> ClientNote:
+    note = ClientNote(
+        client_id=client_id,
+        body=payload.body,
+        author=payload.author or "courtney@zasupport.com",
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+def get_notes(db: Session, client_id: str) -> List[ClientNote]:
+    return (
+        db.query(ClientNote)
+        .filter(ClientNote.client_id == client_id)
+        .order_by(ClientNote.created_at.desc())
+        .all()
+    )
+
+
+def delete_note(db: Session, note_id: int) -> bool:
+    note = db.query(ClientNote).filter(ClientNote.id == note_id).first()
+    if not note:
+        return False
+    db.delete(note)
+    db.commit()
+    return True
 
 
 def map_formbricks_intake(raw: dict) -> Optional[ClientIntakePayload]:

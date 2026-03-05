@@ -142,3 +142,22 @@ class CheckinOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Client Notes ──────────────────────────────────────────────────────────────
+
+class NoteIn(BaseModel):
+    body:   str
+    author: Optional[str] = "courtney@zasupport.com"
+
+
+class NoteOut(BaseModel):
+    id:         int
+    client_id:  str
+    body:       str
+    author:     str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

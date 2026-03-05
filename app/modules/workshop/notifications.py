@@ -55,24 +55,26 @@ async def on_diagnostic_received(payload: dict):
 
                 backup_issues = []
 
-                # Time Machine check
-                tm = env.get("time_machine", {})
-                tm_status = (tm.get("status") or "").lower()
-                days_since = tm.get("days_since_backup")
-                if tm_status in ("not configured", "error", "failed", "never backed up"):
-                    backup_issues.append(f"Time Machine: {tm_status}")
-                elif days_since is not None:
-                    try:
-                        if int(days_since) > 7:
-                            backup_issues.append(f"Time Machine: {int(days_since)} days since last backup")
-                    except (ValueError, TypeError):
-                        pass
+                # Time Machine check (flat fields from environment_mod.sh)
+                tm_status = (env.get("time_machine_status") or "").upper()
+                days_since_raw = env.get("time_machine_days_ago")
+                try:
+                    days_since = int(days_since_raw) if days_since_raw not in (None, "UNKNOWN", "") else None
+                except (ValueError, TypeError):
+                    days_since = None
 
-                # CCC check
-                ccc = env.get("ccc_backup", {})
-                ccc_status = (ccc.get("status") or "").lower()
-                if ccc_status in ("not configured", "error", "failed", "never ran"):
-                    backup_issues.append(f"CCC: {ccc_status}")
+                if tm_status in ("DISABLED", ""):
+                    backup_issues.append("Time Machine: disabled")
+                elif days_since is not None and days_since > 7:
+                    backup_issues.append(f"Time Machine: {days_since} days since last backup")
+
+                # CCC check (flat fields from environment_mod.sh)
+                ccc_installed = (env.get("ccc_installed") or "NO").upper() == "YES"
+                ccc_status = (env.get("ccc_backup_status") or "").strip()
+                if ccc_installed and ccc_status not in ("0", ""):
+                    backup_issues.append(f"CCC: last run status {ccc_status}")
+                elif not ccc_installed and tm_status in ("DISABLED", ""):
+                    backup_issues.append("CCC: not installed")
 
                 if backup_issues:
                     existing = db.execute(
@@ -103,6 +105,56 @@ async def on_diagnostic_received(payload: dict):
                         )
                         db.commit()
                         logger.info(f"Workshop: backup failure job {backup_job.job_ref} created for {client_id} — {issue_str}")
+
+                # 3. Remote access tool detection (flat string from environment_mod.sh)
+                remote_str = env.get("remote_access_tools") or ""
+                # Value is space-separated tool names, e.g. "AnyDesk TeamViewer ScreenSharing(macOS)"
+                if isinstance(remote_str, list):
+                    remote_tools = [t.strip() for t in remote_str if t.strip()]
+                else:
+                    remote_tools = [t.strip() for t in remote_str.replace("|", " ").split() if t.strip() and t.strip().upper() != "NONE"]
+
+                unknown_tools = []
+                approved = {"teamviewer", "parallels", "screens", "apple remote desktop", "screensharing(macos)"}
+                for tool in remote_tools:
+                    if tool.lower() not in approved:
+                        unknown_tools.append(tool)
+
+                if unknown_tools:
+                    existing_ra = db.execute(
+                        text("""
+                            SELECT id FROM workshop_jobs
+                            WHERE client_id = :cid AND serial = :serial
+                              AND title ILIKE '%remote access%'
+                              AND status NOT IN ('done', 'cancelled')
+                              AND created_at > NOW() - INTERVAL '14 days'
+                        """),
+                        {"cid": client_id, "serial": serial},
+                    ).fetchone()
+
+                    if not existing_ra:
+                        tools_str = ", ".join(unknown_tools)
+                        ra_job = create_job(
+                            db=db,
+                            data=JobCreate(
+                                client_id=client_id,
+                                serial=serial,
+                                title=f"Suspicious remote access tool — {serial}",
+                                description=(
+                                    f"Scout detected unrecognised remote access software: {tools_str}. "
+                                    f"Verify with client whether these are authorised."
+                                ),
+                                priority="urgent",
+                                line_items=[],
+                            ),
+                            source="auto",
+                            snapshot_id=snapshot_id,
+                        )
+                        db.commit()
+                        logger.warning(
+                            f"Workshop: CRITICAL remote access job {ra_job.job_ref} created "
+                            f"for {client_id} — tools: {tools_str}"
+                        )
 
         finally:
             db.close()

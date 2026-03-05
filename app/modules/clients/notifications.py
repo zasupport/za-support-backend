@@ -218,3 +218,72 @@ async def on_diagnostic_received(payload: dict):
             send_slack("\n".join(slack_lines))
         except Exception as e:
             logger.error(f"High-risk diagnostic Slack alert failed for {client_id}: {e}")
+
+
+@subscribe("client.status_changed")
+async def on_status_changed(payload: dict):
+    """
+    Notify client when status → active (onboarding underway) or → sla (subscribed).
+    Always notify Courtney.
+    """
+    client_id  = payload.get("client_id", "unknown")
+    email      = payload.get("email", "")
+    first_name = payload.get("first_name", "there")
+    old_status = payload.get("old_status", "")
+    new_status = payload.get("new_status", "")
+
+    # Notify Courtney
+    try:
+        send_slack(
+            f"Client status updated: `{client_id}` | {old_status} → *{new_status}*\n"
+            f"<{DASHBOARD_URL}/{client_id}|Open in Dashboard>"
+        )
+    except Exception as e:
+        logger.error(f"Status change Slack notification failed: {e}")
+
+    # Email client on meaningful transitions
+    if new_status == "active" and old_status in ("new", "inactive"):
+        subject = "Your ZA Support onboarding is underway"
+        body = "\n".join([
+            f"Hi {first_name},",
+            f"",
+            f"Just a quick note — your ZA Support profile is now active.",
+            f"We're working through your onboarding checklist and will be in touch",
+            f"soon to schedule your Health Check Scout diagnostic visit.",
+            f"",
+            f"If anything urgent comes up in the meantime, call Courtney on 064 529 5863.",
+            f"",
+            f"ZA Support | Practice IT. Perfected.",
+            f"admin@zasupport.com | zasupport.com",
+        ])
+        try:
+            send_email(email, subject, body)
+            logger.info(f"Active status email sent to {email} ({client_id})")
+        except Exception as e:
+            logger.error(f"Active status email failed for {client_id}: {e}")
+
+    elif new_status == "sla":
+        subject = "Welcome to your ZA Support SLA"
+        body = "\n".join([
+            f"Hi {first_name},",
+            f"",
+            f"Your ZA Support SLA subscription is now active. Here's what that means for you:",
+            f"",
+            f"  • Monthly proactive health check on your Mac",
+            f"  • Priority response when something goes wrong",
+            f"  • Regular CyberPulse security and performance reports",
+            f"  • Direct line to Courtney for ad-hoc questions",
+            f"",
+            f"Your first monthly check-in will be scheduled shortly.",
+            f"",
+            f"Thank you for trusting ZA Support with your digital environment.",
+            f"",
+            f"ZA Support | Practice IT. Perfected.",
+            f"admin@zasupport.com | 064 529 5863 | zasupport.com",
+            f"1 Hyde Park Lane, Hyde Park, Johannesburg, 2196",
+        ])
+        try:
+            send_email(email, subject, body)
+            logger.info(f"SLA welcome email sent to {email} ({client_id})")
+        except Exception as e:
+            logger.error(f"SLA welcome email failed for {client_id}: {e}")

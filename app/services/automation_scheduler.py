@@ -22,6 +22,7 @@ from app.services.stale_diagnostic_alerter import run_stale_diagnostic_check
 from app.services.previsit_reminder import run_previsit_reminders
 from app.services.sla_report_scheduler import run_sla_monthly_reports
 from app.services.critical_escalation import run_critical_escalation
+from app.services.morning_email import run_morning_email
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ JOB_DEFS = [
     ("backup_monitor",   "Backup Health Monitor",          backup_check,       {"trigger": "interval", "hours": 6}),
     ("report_generator", "Device Report Generator",        generate_all_reports, {"trigger": "cron", "hour": 6, "minute": 0}),
     ("weekly_digest",    "Weekly Operations Digest",       run_weekly_digest,  {"trigger": "cron", "day_of_week": "mon", "hour": 7, "minute": 0}),
+    ("morning_email",          "Morning Operations Email",    run_morning_email,          {"trigger": "cron", "hour": 7, "minute": 0}),
     ("stale_diagnostic_check", "Stale Diagnostic Alerter",   run_stale_diagnostic_check, {"trigger": "cron", "hour": 8, "minute": 0}),
     ("previsit_reminder",      "Pre-Visit Client Reminders", run_previsit_reminders,     {"trigger": "cron", "hour": 7, "minute": 30}),
     ("sla_monthly_reports",    "SLA Monthly Report Delivery",run_sla_monthly_reports,    {"trigger": "cron", "day": 1, "hour": 6, "minute": 0}),

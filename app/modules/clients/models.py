@@ -75,3 +75,14 @@ class ClientCheckin(Base):
     backup_drive_connected = Column(String(20))
     pre_visit_notes        = Column(Text)
     created_at             = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class ClientNote(Base):
+    __tablename__ = "client_notes"
+
+    id         = Column(Integer, primary_key=True)
+    client_id  = Column(String(100), nullable=False)
+    body       = Column(Text, nullable=False)
+    author     = Column(String(100), default="courtney@zasupport.com")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())

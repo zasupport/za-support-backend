@@ -20,6 +20,8 @@ from app.modules.clients.schemas import (
     ClientDetailOut,
     ClientTaskOut,
     CheckinOut,
+    NoteIn,
+    NoteOut,
 )
 
 logger = logging.getLogger(__name__)
@@ -225,16 +227,20 @@ def client_health(client_id: str, db: Session = Depends(get_db)):
             days_since = (now - scan_dt).days
             scan_pts = 20 if days_since <= 30 else (10 if days_since <= 60 else 0)
 
-        # Backup check from environment data
+        # Backup check from environment data (flat fields from environment_mod.sh)
         import json
         raw = json.loads(snap.raw_json) if isinstance(snap.raw_json, str) else (snap.raw_json or {})
         env = raw.get("environment", {})
-        tm  = env.get("time_machine", {})
-        ccc = env.get("ccc_backup", {})
-        tm_ok  = (tm.get("status") or "").lower() not in ("not configured", "error", "failed", "never backed up", "")
-        tm_days = tm.get("days_since_backup")
-        tm_recent = tm_ok and (tm_days is None or (isinstance(tm_days, (int, float)) and tm_days <= 7))
-        ccc_ok = (ccc.get("status") or "").lower() not in ("not configured", "error", "failed", "never ran", "")
+        tm_status = (env.get("time_machine_status") or "").upper()
+        tm_days_raw = env.get("time_machine_days_ago")
+        try:
+            tm_days = int(tm_days_raw) if tm_days_raw not in (None, "UNKNOWN", "") else None
+        except (ValueError, TypeError):
+            tm_days = None
+        tm_ok = tm_status not in ("DISABLED", "UNKNOWN", "")
+        tm_recent = tm_ok and (tm_days is None or tm_days <= 7)
+        ccc_installed = (env.get("ccc_installed") or "NO").upper() == "YES"
+        ccc_ok = ccc_installed
         backup_pts = 20 if (tm_recent or ccc_ok) else (10 if tm_ok else 0)
     else:
         risk_pts = 0  # No data — unknown risk, score 0
@@ -267,9 +273,10 @@ def client_health(client_id: str, db: Session = Depends(get_db)):
 # ── Client Status Update ──────────────────────────────────────────────────────
 
 @router.patch("/{client_id}/status", dependencies=[Depends(verify_agent_token)])
-def update_client_status(client_id: str, body: dict, db: Session = Depends(get_db)):
+def update_client_status(
+    client_id: str, body: dict, background: BackgroundTasks, db: Session = Depends(get_db)
+):
     """Update client status: new | active | sla | inactive."""
-    from sqlalchemy import text
     allowed = {"new", "active", "sla", "inactive"}
     new_status = (body.get("status") or "").lower().strip()
     if new_status not in allowed:
@@ -277,11 +284,47 @@ def update_client_status(client_id: str, body: dict, db: Session = Depends(get_d
     client = service.get_client(db, client_id)
     if not client:
         raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+    old_status = client.status
     client.status = new_status
     db.commit()
     db.refresh(client)
-    logger.info(f"Client {client_id} status updated to {new_status}")
+    logger.info(f"Client {client_id} status updated: {old_status} → {new_status}")
+    if old_status != new_status:
+        background.add_task(emit_event, "client.status_changed", {
+            "client_id": client_id,
+            "email": client.email,
+            "first_name": client.first_name,
+            "old_status": old_status,
+            "new_status": new_status,
+        })
     return {"client_id": client_id, "status": new_status}
+
+
+# ── Client Notes ──────────────────────────────────────────────────────────────
+
+@router.post("/{client_id}/notes", response_model=NoteOut, dependencies=[Depends(verify_agent_token)])
+def add_note(client_id: str, payload: NoteIn, db: Session = Depends(get_db)):
+    """Add a sticky note to a client profile."""
+    if not service.get_client(db, client_id):
+        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+    return service.add_note(db, client_id, payload)
+
+
+@router.get("/{client_id}/notes", response_model=List[NoteOut], dependencies=[Depends(verify_agent_token)])
+def get_notes(client_id: str, db: Session = Depends(get_db)):
+    """Get all notes for a client (newest first)."""
+    if not service.get_client(db, client_id):
+        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+    return service.get_notes(db, client_id)
+
+
+@router.delete("/{client_id}/notes/{note_id}", dependencies=[Depends(verify_agent_token)])
+def delete_note(client_id: str, note_id: int, db: Session = Depends(get_db)):
+    """Delete a note."""
+    deleted = service.delete_note(db, note_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Note not found: {note_id}")
+    return {"deleted": note_id}
 
 
 # ── Morning Operations View ───────────────────────────────────────────────────
