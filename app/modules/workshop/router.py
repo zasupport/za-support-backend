@@ -59,7 +59,8 @@ def update_status(job_ref: str, update: JobStatusUpdate, background: BackgroundT
         raise HTTPException(status_code=404, detail="Job not found")
     prev_status = job.status
     updated = service.update_job_status(db, job, update)
-    if update.status == "done" and prev_status != "done":
+    done_statuses = {"done", "completed"}
+    if update.status in done_statuses and prev_status not in done_statuses:
         background.add_task(emit_event, "workshop.job_completed", {
             "job_ref":   updated.job_ref,
             "client_id": updated.client_id,

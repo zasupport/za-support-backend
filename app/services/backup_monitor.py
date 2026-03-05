@@ -1,105 +1,99 @@
 """
-Backup monitor — checks Time Machine and third-party backup status from diagnostic data.
+Backup monitor — checks Time Machine and CCC backup status from Scout v3 diagnostic data.
+Reads diagnostic_snapshots (environment section, flat fields from environment_mod.sh).
 Alerts when no backup is configured or backups are stale.
 """
+import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app.models.models import BackupStatus, WorkshopDiagnostic, Device
+from app.models.models import BackupStatus
 from app.services.event_bus import publish
 
 logger = logging.getLogger(__name__)
 
-# Third-party backup agents we detect (from diagnostic v3.0 section 27)
-BACKUP_AGENTS = [
-    "Carbonite", "Backblaze", "CrashPlan", "Code42",
-    "Arq", "ChronoSync", "Acronis",
-]
-
-STALE_DAYS_WARNING = 7
+STALE_DAYS_WARNING  = 7
 STALE_DAYS_CRITICAL = 30
 
 
 def check_all_devices(db: Session):
-    """Scan diagnostics and health data for backup status."""
+    """Scan latest diagnostic snapshots for backup status (one per serial)."""
     logger.info("[BackupMonitor] Starting backup scan...")
-    devices = db.query(Device).filter(Device.is_active == True).all()
+
+    # One latest snapshot per serial
+    rows = db.execute(
+        text("""
+        SELECT DISTINCT ON (serial)
+            serial, client_id, raw_json,
+            raw_json::json->'system'->>'hostname' AS hostname
+        FROM diagnostic_snapshots
+        ORDER BY serial, scan_date DESC
+        """)
+    ).fetchall()
+
     events_count = 0
 
-    for device in devices:
-        serial = device.serial_number or device.machine_id
+    for row in rows:
+        serial    = row.serial
+        client_id = row.client_id
+        hostname  = row.hostname or serial
 
-        # Get latest diagnostic for this device (if any)
-        diag = db.query(WorkshopDiagnostic).filter(
-            WorkshopDiagnostic.serial_number == serial
-        ).order_by(WorkshopDiagnostic.captured_at.desc()).first()
+        try:
+            raw = json.loads(row.raw_json) if isinstance(row.raw_json, str) else (row.raw_json or {})
+        except Exception:
+            raw = {}
 
-        # Upsert backup status
-        bs = db.query(BackupStatus).filter(
-            BackupStatus.device_serial == serial
-        ).first()
+        env = raw.get("environment", {})
 
+        # ── Parse flat fields written by environment_mod.sh ──────────────
+        tm_status  = (env.get("time_machine_status") or "").upper()
+        days_raw   = env.get("time_machine_days_ago")
+        try:
+            tm_days = int(days_raw) if days_raw not in (None, "UNKNOWN", "") else None
+        except (ValueError, TypeError):
+            tm_days = None
+
+        tm_enabled   = tm_status not in ("DISABLED", "")
+        ccc_installed = (env.get("ccc_installed") or "NO").upper() == "YES"
+
+        # ── Upsert backup status record ───────────────────────────────────
+        bs = db.query(BackupStatus).filter(BackupStatus.device_serial == serial).first()
         if not bs:
-            bs = BackupStatus(device_serial=serial, client_id=device.client_id)
+            bs = BackupStatus(device_serial=serial, client_id=client_id)
             db.add(bs)
 
-        bs.last_checked = datetime.now(timezone.utc)
-        bs.client_id = device.client_id
+        bs.last_checked       = datetime.now(timezone.utc)
+        bs.client_id          = client_id
+        bs.time_machine_enabled = tm_enabled
+        if tm_days is not None:
+            bs.tm_days_stale  = tm_days
+        if ccc_installed:
+            bs.third_party_agent = "CCC"
+        bs.no_backup = not tm_enabled and not ccc_installed
 
-        if diag and diag.raw_json:
-            raw = diag.raw_json if isinstance(diag.raw_json, dict) else {}
-            _update_from_diagnostic(bs, raw)
-
-        # Generate events for missing/stale backups
+        # ── Generate alerts ───────────────────────────────────────────────
         if bs.no_backup:
             publish(
                 db, event_type="backup.missing", source="backup_monitor",
-                summary=f"No backup configured on {device.hostname or serial}",
+                summary=f"No backup configured on {hostname}",
                 severity="critical",
-                device_serial=serial, client_id=device.client_id,
-                detail={"time_machine": False, "third_party": None},
+                device_serial=serial, client_id=client_id,
+                detail={"time_machine": False, "ccc": False},
             )
             events_count += 1
-        elif bs.tm_days_stale and bs.tm_days_stale > STALE_DAYS_WARNING:
-            severity = "critical" if bs.tm_days_stale > STALE_DAYS_CRITICAL else "high"
+        elif tm_days is not None and tm_days > STALE_DAYS_WARNING:
+            severity = "critical" if tm_days > STALE_DAYS_CRITICAL else "high"
             publish(
                 db, event_type="backup.stale", source="backup_monitor",
-                summary=f"Time Machine {bs.tm_days_stale}d stale on {device.hostname or serial}",
+                summary=f"Time Machine {tm_days}d stale on {hostname}",
                 severity=severity,
-                device_serial=serial, client_id=device.client_id,
-                detail={"tm_days_stale": bs.tm_days_stale},
+                device_serial=serial, client_id=client_id,
+                detail={"tm_days_stale": tm_days},
             )
             events_count += 1
 
     db.commit()
-    logger.info(f"[BackupMonitor] Scan complete. {len(devices)} devices, {events_count} alerts.")
-
-
-def _update_from_diagnostic(bs: BackupStatus, raw: dict):
-    """Extract backup info from diagnostic JSON."""
-    # Section 27 — Time Machine Deep
-    tm = raw.get("time_machine", {})
-    if isinstance(tm, dict):
-        bs.time_machine_enabled = tm.get("enabled", False)
-        last_backup_str = tm.get("last_backup")
-        if last_backup_str:
-            try:
-                last_dt = datetime.fromisoformat(last_backup_str.replace("Z", "+00:00"))
-                bs.last_tm_backup = last_dt
-                last_aware = last_dt if last_dt.tzinfo else last_dt.replace(tzinfo=timezone.utc)
-                bs.tm_days_stale = (datetime.now(timezone.utc) - last_aware).days
-            except (ValueError, TypeError):
-                pass
-
-        # Third-party detection
-        agents = tm.get("third_party_agents", [])
-        if agents:
-            bs.third_party_agent = agents[0] if isinstance(agents, list) else str(agents)
-
-    # If no TM and no third-party, flag as no backup
-    if not bs.time_machine_enabled and not bs.third_party_agent:
-        bs.no_backup = True
-    else:
-        bs.no_backup = False
+    logger.info(f"[BackupMonitor] Scan complete. {len(rows)} devices, {events_count} alerts.")
