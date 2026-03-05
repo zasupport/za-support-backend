@@ -163,8 +163,18 @@ NETWORKING_INTEGRATIONS_ENABLED=false
 - [x] Clients — app/modules/clients/ (intake form, Formbricks webhooks, task checklists, check-ins, notes, health score, status, morning overview, site visit brief)
 - [x] Workshop — app/modules/workshop/ (job cards, line items, status history, auto-creation from diagnostics, backup failure detection, remote access detection)
 - [x] Reports — app/modules/reports/ (CyberPulse PDF generation + delivery, generated_reports log)
-- [x] Automation — 12 scheduled jobs: patch monitor, backup monitor, report generator, weekly digest, morning email, stale diagnostic alerter, pre-visit reminders, SLA monthly reports, critical escalation, stale device check, security posture scan, event cleanup, heartbeat rollup
-- [x] Event subscribers: report_delivery (auto PDF on CRITICAL/HIGH), post_visit_followup (email on job done), isp_outage_notifier (notify affected clients), workshop/notifications (auto job cards from diagnostics)
+- [x] Automation — 14 scheduled jobs: patch monitor, backup monitor, report generator, weekly digest, morning email, monthly client emails, stale diagnostic alerter, pre-visit reminders, SLA monthly reports, critical escalation, stale device check, security posture scan, event cleanup, heartbeat rollup
+- [x] Event subscribers (all wired, all tested):
+  - diagnostics.upload_received → report_delivery (PDF to client on CRITICAL/HIGH)
+  - diagnostics.upload_received → workshop/notifications (backup job + remote access job)
+  - diagnostics.upload_received → clients/notifications (Scout task auto-complete + new→active + alert)
+  - workshop.job_completed → post_visit_followup (thank-you email + Slack, fires on 'completed' OR 'done')
+  - isp.outage_detected / isp.outage_resolved → isp_outage_notifier
+  - breach.critical_found → breach_email_notifier
+  - forensics.critical_findings → forensics_notifier (email + Slack + auto workshop job)
+  - client.created → clients/notifications (welcome email to client + Scout command to Courtney + Slack)
+  - client.status_changed → clients/notifications (active/SLA transition emails)
+  - critical/high events → notification_engine (email + Slack on all severity=high/critical events)
 - [x] migrate.py — auto-runs all 0*.sql migrations on every Render deploy (idempotent)
 - [x] deploy.sh — one-command deploy (git push → Render auto-deploys + runs migrations)
 
@@ -183,18 +193,11 @@ NETWORKING_INTEGRATIONS_ENABLED=false
 - CLOUDFLARE_RADAR_TOKEN (optional)
 - RIPE_ATLAS_API_KEY (optional)
 
-### 3. Frontend Dashboard
-- Device list, diagnostics viewer, ISP status, alerts, app intelligence views
+### 3. Set DASHBOARD_PASSWORD on Vercel
+- Activates dashboard session auth (login page + middleware already deployed)
 
-### 4. Monthly Report Generation Engine
-- Auto-generate PDF reports from stored diagnostic + module data
-- reportlab (Platypus), A4, CyberShield/CyberPulse template structure
-
-### 5. Per-client .pkg builder
+### 4. Per-client .pkg builder
 - Embeds AGENT_AUTH_TOKEN + client_id at build time
-
-### 6. Workshop/PTG trigger automation
-- Diagnostic findings → auto-create Workshop job cards
 
 ---
 
