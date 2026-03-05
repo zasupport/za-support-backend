@@ -85,6 +85,7 @@ class ThreatIntelSource(str, Enum):
     YARA = "yara"
     HASH_DB = "hash_db"
     MITRE_ATTACK = "mitre_attack"
+    HAVE_I_BEEN_PWNED = "have_i_been_pwned"
     MANUAL = "manual"
 
 

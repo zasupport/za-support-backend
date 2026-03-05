@@ -131,8 +131,9 @@ ISP_MONITOR_OUTAGE_DEGRADED_THRESHOLD=10.0
 ISP_MONITOR_ALERT_COOLDOWN_MINS=30
 
 # Breach Scanner (set on Render)
-VIRUSTOTAL_API_KEY=
-ABUSEIPDB_API_KEY=
+VIRUSTOTAL_API_KEY=     # configured
+ABUSEIPDB_API_KEY=      # configured
+HIBP_API_KEY=           # configured
 
 # ISP Networking Integrations (optional)
 CLOUDFLARE_RADAR_TOKEN=

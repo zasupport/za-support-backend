@@ -61,6 +61,7 @@ from .abuse_ipdb import AbuseIPDBProvider  # noqa: E402
 from .yara_rules import YaraRulesProvider  # noqa: E402
 from .hash_db import HashDBProvider  # noqa: E402
 from .mitre_attack import MitreAttackProvider  # noqa: E402
+from .haveibeenpwned import HaveIBeenPwnedProvider  # noqa: E402
 
 ALL_PROVIDERS: list[type[BaseThreatIntelProvider]] = [
     VirusTotalProvider,
@@ -68,6 +69,7 @@ ALL_PROVIDERS: list[type[BaseThreatIntelProvider]] = [
     YaraRulesProvider,
     HashDBProvider,
     MitreAttackProvider,
+    HaveIBeenPwnedProvider,
 ]
 
 __all__ = [
@@ -77,5 +79,6 @@ __all__ = [
     "YaraRulesProvider",
     "HashDBProvider",
     "MitreAttackProvider",
+    "HaveIBeenPwnedProvider",
     "ALL_PROVIDERS",
 ]
