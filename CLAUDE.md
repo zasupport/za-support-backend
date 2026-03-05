@@ -107,34 +107,13 @@ ISP_MONITOR_ALERT_COOLDOWN_MINS=30
 - [x] Custom domain api.zasupport.com with TLS
 - [x] Dual-token agent auth rotation (AGENT_AUTH_TOKEN_OLD)
 - [x] DiagnosticSubmission endpoint — receives V3 JSON push
+- [x] CC3: ZA Vault module — app/modules/vault/ (Fernet encryption, CRUD, audit log, commit 232e1ae)
 
 ---
 
 ## WHAT IS PENDING (in priority order)
 
-### NEXT: CC3 — ZA Vault Module
-Location: app/modules/vault/
-Purpose: Secure credential storage for ZA Support technicians.
-         Stores client credentials (M365, iCloud, ISP, router, WiFi, app licenses).
-         NOT a consumer password manager — internal technician tool.
-
-Files to create:
-- app/modules/vault/models.py  (VaultEntry, VaultAuditLog SQLAlchemy models)
-- app/modules/vault/schemas.py (Pydantic schemas)
-- app/modules/vault/service.py (Fernet encryption/decryption, CRUD)
-- app/modules/vault/router.py  (GET/POST/PUT/DELETE /api/v1/vault/entries)
-- app/modules/vault/__init__.py
-
-VaultEntry fields: client_id, category, service_name, username (enc), password (enc),
-url, notes (enc), license_key (enc), expiry_date, last_rotated, rotation_reminder_days.
-Categories: microsoft365, icloud, isp, router, wifi, application, other.
-Encryption: Fernet (cryptography library). Key from VAULT_ENCRYPTION_KEY env var.
-Audit log: every read/write logged (who, what, when).
-Add router to main.py.
-New env var: VAULT_ENCRYPTION_KEY (32-byte base64 Fernet key).
-Commit: "feat: ZA Vault — encrypted credential storage module"
-
-### AFTER: CC4 — ZA Shield Agent Module
+### NEXT: CC4 — ZA Shield Agent Module
 Location: app/modules/shield_agent/ (server-side)
            agent/za_shield_agent.sh (client-side LaunchDaemon)
 
