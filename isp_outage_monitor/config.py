@@ -1,5 +1,5 @@
 """
-Health Check v11 — ISP Outage Monitor Configuration
+Health Check AI — ISP Outage Monitor Configuration
 
 Updated: Networking Integrations — added API keys and settings
 for Cloudflare Radar, IODA, RIPE Atlas, Statuspage, and BGP providers.

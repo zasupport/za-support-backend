@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 Tool Registry: Detects and manages available forensic tools.
 All tools are optional. The module gracefully degrades when tools are absent.
 """

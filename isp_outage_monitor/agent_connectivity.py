@@ -1,5 +1,5 @@
 """
-Health Check v11 — Agent Connectivity Checker
+Health Check AI — Agent Connectivity Checker
 Lightweight module that runs on each client device as part of the
 Health Check agent. Reports connectivity status back to the server.
 

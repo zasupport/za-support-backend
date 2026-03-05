@@ -1,5 +1,5 @@
 """
-Compromised Data Scanner Module — Health Check v11
+Compromised Data Scanner Module — Health Check AI
 
 Retrospective endpoint forensic scanner that analyses local machine data
 to detect indicators of compromise (IOCs). Scans the filesystem, installed

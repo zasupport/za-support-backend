@@ -1,5 +1,5 @@
 """
-ZA Support Health Check v11 — Inter-Module Event Bus
+ZA Support Health Check AI — Inter-Module Event Bus
 Modules communicate via events. NEVER import directly between modules.
 
 Usage:

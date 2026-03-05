@@ -1,5 +1,5 @@
 -- ============================================================
--- Health Check v11 — ISP Outage Monitor
+-- Health Check AI — ISP Outage Monitor
 -- Database Migration: TimescaleDB + PostgreSQL
 -- Run against your existing Health Check database
 -- ============================================================

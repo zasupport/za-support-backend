@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 Collectors: Evidence acquisition in correct forensic order.
 Order: volatile (RAM/processes/network) → semi-volatile → stable
 """

@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Compromised Data Scanner — Initial Migration
 -- Module: app/modules/breach_scanner
--- Health Check v11
+-- Health Check AI
 -- =============================================================================
 -- Tables:
 --   1. breach_consent        — POPIA consent records per client

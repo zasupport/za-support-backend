@@ -1,10 +1,10 @@
 """
-Forensics Module Router — Health Check v11
+Forensics Module Router — Health Check AI
 ==========================================
 API endpoints for forensic investigation management.
 
 This module is OPTIONAL and must be explicitly loaded.
-It is NOT included in the default Health Check v11 router.
+It is NOT included in the default Health Check AI router.
 
 To activate, add to main.py:
     from app.modules.forensics.router import router as forensics_router

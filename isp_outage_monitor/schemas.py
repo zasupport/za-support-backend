@@ -1,5 +1,5 @@
 """
-Health Check v11 — ISP Outage Monitor Schemas
+Health Check AI — ISP Outage Monitor Schemas
 Pydantic models for API requests, responses, and internal data passing.
 
 Updated: Networking Integrations — added check methods for Cloudflare Radar,

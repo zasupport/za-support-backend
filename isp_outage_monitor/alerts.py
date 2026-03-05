@@ -1,5 +1,5 @@
 """
-Health Check v11 — ISP Outage Alert System
+Health Check AI — ISP Outage Alert System
 Sends alerts via webhook (Slack/Teams), email, and future WhatsApp.
 Includes auto-generated call scripts and fault report emails for reception staff.
 """

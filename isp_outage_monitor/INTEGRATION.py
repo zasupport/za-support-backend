@@ -1,9 +1,9 @@
 """
-Health Check v11 — ISP Outage Monitor Integration
+Health Check AI — ISP Outage Monitor Integration
 ==================================================
 Updated: Includes Networking Integrations setup
 
-Add this to your existing Health Check v11 FastAPI main.py
+Add this to your existing Health Check AI FastAPI main.py
 to wire up the ISP monitoring module with all providers.
 """
 

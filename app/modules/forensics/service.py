@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 Orchestration Service: coordinates investigation lifecycle,
 task scheduling, finding aggregation, and report generation.
 """

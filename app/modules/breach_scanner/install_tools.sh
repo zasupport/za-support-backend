@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Breach Scanner — Complete Dependency Installer
-# Health Check v11 Module
+# Health Check AI Module
 # ZA Support | admin@zasupport.com | 064 529 5863
 # =============================================================================
 set -euo pipefail
@@ -235,7 +235,7 @@ verify_dependencies() {
 main() {
     echo -e "\n${CYAN}${BOLD}╔═══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}${BOLD}║   Breach Scanner — Dependency Installer                  ║${NC}"
-    echo -e "${CYAN}${BOLD}║   Health Check v11 | ZA Support                          ║${NC}"
+    echo -e "${CYAN}${BOLD}║   Health Check AI | ZA Support                          ║${NC}"
     echo -e "${CYAN}${BOLD}╚═══════════════════════════════════════════════════════════╝${NC}\n"
     detect_os; detect_mode
     [[ "$MODE" == "check" ]] && { verify_dependencies; exit 0; }

@@ -1,4 +1,4 @@
-# Forensics Module — Health Check v11
+# Forensics Module — Health Check AI
 
 **Software-only forensic analysis as an optional Health Check module.**
 
@@ -90,7 +90,7 @@ sudo ./install_tools.sh live
 
 ### Step 3 — Add the router to your main FastAPI app
 
-In `main.py` (or wherever you configure Health Check v11 routes):
+In `main.py` (or wherever you configure Health Check AI routes):
 
 ```python
 from app.modules.forensics import forensics_router, FORENSICS_AVAILABLE
@@ -206,7 +206,7 @@ Each report includes:
 
 The following items require decisions based on your specific deployment:
 
-1. **Role-based access control** — Who in Health Check v11 can create investigations? Who can view findings? Who can generate reports? Integrate with your existing auth system.
+1. **Role-based access control** — Who in Health Check AI can create investigations? Who can view findings? Who can generate reports? Integrate with your existing auth system.
 
 2. **POPIA consent form** — Create a standardised written consent form for clients to sign. The module records the reference number — the physical or digital form is your responsibility.
 
@@ -220,11 +220,11 @@ The following items require decisions based on your specific deployment:
 
 ---
 
-## Integration with Health Check v11
+## Integration with Health Check AI
 
-The module links to existing Health Check v11 records via `client_id` and `device_id` fields. These are string references — implement the foreign key joins based on your core schema.
+The module links to existing Health Check AI records via `client_id` and `device_id` fields. These are string references — implement the foreign key joins based on your core schema.
 
-Suggested integration trigger (add to Health Check v11 alert handling):
+Suggested integration trigger (add to Health Check AI alert handling):
 
 ```python
 # When a device raises a CRITICAL security alert
@@ -242,5 +242,5 @@ if alert.category == "security" and alert.severity == "critical":
 
 ---
 
-*Forensics Module — Health Check v11 | ZA Support | Practice IT. Perfected.*
+*Forensics Module — Health Check AI | ZA Support | Practice IT. Perfected.*
 *admin@zasupport.com | 064 529 5863 | 1 Hyde Park Lane, Hyde Park, Johannesburg, 2196*

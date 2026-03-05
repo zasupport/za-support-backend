@@ -1,5 +1,5 @@
 """
-Health Check v11 — ISP Outage Monitor Scheduler
+Health Check AI — ISP Outage Monitor Scheduler
 Background task that periodically checks all monitored ISPs,
 correlates signals, manages outage lifecycle, and triggers alerts.
 """
@@ -25,7 +25,7 @@ class ISPMonitorScheduler:
     4. Alert dispatch
     5. Result persistence to database
 
-    Integrates with Health Check v11's existing async infrastructure.
+    Integrates with Health Check AI's existing async infrastructure.
     """
 
     def __init__(self, db_pool, redis_client):

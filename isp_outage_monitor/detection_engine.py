@@ -1,5 +1,5 @@
 """
-Health Check v11 — ISP Outage Detection Engine
+Health Check AI — ISP Outage Detection Engine
 Multi-method outage detection: status page scraping, Downdetector,
 HTTP probes, Health Check agent correlation, AND Networking Integrations
 (Cloudflare Radar, IODA, RIPE Atlas, Statuspage API, BGP Looking Glass).

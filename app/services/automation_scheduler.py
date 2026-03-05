@@ -237,7 +237,7 @@ def _seed_initial_events(db: Session):
 
     now = datetime.utcnow()
     seed_events = [
-        ("system.startup", "system", "info", "Health Check v11.2 automation layer started"),
+        ("system.startup", "system", "info", "Health Check AI v11.2 automation layer started"),
         ("scheduler.registered", "scheduler", "info", "Patch monitor registered (every 6h)"),
         ("scheduler.registered", "scheduler", "info", "Backup monitor registered (every 6h)"),
         ("scheduler.registered", "scheduler", "info", "Report generator registered (daily 06:00)"),
@@ -266,7 +266,7 @@ def _seed_initial_events(db: Session):
         ("compliance.popia_ready", "compliance", "info", "POPIA compliance controls active"),
         ("client.dr_shoul", "system", "info", "Client configured: Dr Evan Shoul (Stem ISP)"),
         ("client.chemel", "system", "info", "Client configured: Charles Chemel (NTT Data)"),
-        ("system.version", "system", "info", "Health Check v11.2 — Automation Layer deployed"),
+        ("system.version", "system", "info", "Health Check AI v11.2 — Automation Layer deployed"),
     ]
 
     for evt_type, source, severity, summary in seed_events:

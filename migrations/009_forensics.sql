@@ -1,12 +1,12 @@
 -- ============================================================
 -- Forensics Module — Initial Database Migration
--- Health Check v11
+-- Health Check AI
 -- Migration: forensics_001_initial
 -- ============================================================
 -- Run this migration ONLY when activating the forensics module.
--- It is NOT part of the core Health Check v11 schema.
+-- It is NOT part of the core Health Check AI schema.
 --
--- Prerequisites: Health Check v11 core schema must exist.
+-- Prerequisites: Health Check AI core schema must exist.
 -- TimescaleDB is NOT required for this module.
 -- ============================================================
 
@@ -67,7 +67,7 @@ CREATE TYPE task_status AS ENUM (
 CREATE TABLE forensic_investigations (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
-    -- Client/device linkage (references Health Check v11 core tables)
+    -- Client/device linkage (references Health Check AI core tables)
     client_id           VARCHAR(255),
     device_id           VARCHAR(255),
     device_hostname     VARCHAR(255),
@@ -340,7 +340,7 @@ COMMIT;
 -- POST-MIGRATION NOTES
 -- ============================================================
 -- 1. No row-level security has been applied here — integrate
---    with your existing Health Check v11 RLS policies.
+--    with your existing Health Check AI RLS policies.
 -- 2. forensic_audit_log should have INSERT-only grants for
 --    the application role. Never grant UPDATE or DELETE.
 -- 3. Consider pg_partman for forensic_audit_log if you expect

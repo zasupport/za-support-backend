@@ -1,5 +1,5 @@
 """
-SQLAlchemy ORM models for Health Check v11.
+SQLAlchemy ORM models for Health Check AI.
 Includes diagnostic upload table for za_diag_v3.sh integration.
 """
 from sqlalchemy import (

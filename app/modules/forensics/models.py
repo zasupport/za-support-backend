@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 Database Models (SQLAlchemy) and Pydantic Schemas
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
-# Import your existing Base from Health Check v11
+# Import your existing Base from Health Check AI
 # from app.database import Base
 # For module portability, we define it locally if needed:
 try:
@@ -252,7 +252,7 @@ class ConsentGrantRequest(BaseModel):
 
 
 class CreateInvestigationRequest(BaseModel):
-    client_id:    str  = Field(..., description="Health Check v11 client ID")
+    client_id:    str  = Field(..., description="Health Check AI client ID")
     device_id:    Optional[str] = Field(None, description="Specific device to analyse (optional)")
     device_name:  Optional[str] = None
     device_os:    Optional[str] = None

@@ -1,5 +1,5 @@
 """
-Health Check v11 — Networking Integrations Router Extension
+Health Check AI — Networking Integrations Router Extension
 ============================================================
 Additional FastAPI endpoints for Networking Integration providers.
 Mount alongside the existing ISP monitor router.

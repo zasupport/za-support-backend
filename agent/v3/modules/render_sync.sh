@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # ZA Support — Render Sync Module
-# Pushes a JSON file to the Health Check v11 API on za-health-check-v11.onrender.com
+# Pushes a JSON file to the Health Check AI API on za-health-check-v11.onrender.com
 # Requires: ZA_API_URL, ZA_API_ENDPOINT, and ZA_AUTH_TOKEN set in config/settings.conf
 #
 # Deployed endpoint: POST /api/v1/agent/diagnostics  (main_integrated.py)

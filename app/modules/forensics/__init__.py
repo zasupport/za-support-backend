@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 =====================================
 Optional forensic analysis module. Not loaded by default.
 

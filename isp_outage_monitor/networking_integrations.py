@@ -1,5 +1,5 @@
 """
-Health Check v11 — Networking Integrations
+Health Check AI — Networking Integrations
 ===========================================
 Plugs into the ISP Outage Detection Engine with real-world
 ISP outage data providers for South African networks.

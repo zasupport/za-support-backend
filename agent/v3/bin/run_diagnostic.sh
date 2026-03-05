@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# ZA SUPPORT — CyberPulse Assessment Engine v3.3
+# ZA SUPPORT — Health Check Scout v3.3
 # Modular orchestrator — Bash 3.2 compatible
 #
 # Usage:
@@ -76,7 +76,7 @@ fi
 # BANNER
 # ─────────────────────────────────────────────────────────────────────────────
 printf '%b╔══════════════════════════════════════════════════════════════╗%b\n' "$GREEN$BOLD" "$NC"
-printf '%b║   ZA SUPPORT — CyberPulse Assessment Engine v3.3            ║%b\n' "$GREEN$BOLD" "$NC"
+printf '%b║   ZA SUPPORT — Health Check Scout v3.3            ║%b\n' "$GREEN$BOLD" "$NC"
 printf '%b║   %-58s║%b\n' "$GREEN$BOLD" \
     "$([ "$QUICK_MODE" = true ] && echo 'QUICK MODE (~2 min)' || echo 'FULL MODE')" "$NC"
 printf '%b╚══════════════════════════════════════════════════════════════╝%b\n' "$GREEN$BOLD" "$NC"
@@ -120,7 +120,7 @@ generate_reports "$DESKTOP_OUTPUT"
 # OPTIONAL API PUSH
 # ─────────────────────────────────────────────────────────────────────────────
 if [ "$PUSH_MODE" = true ]; then
-    progress "Pushing to Health Check v11 API..."
+    progress "Pushing to Health Check AI API..."
     source "$MODULES_DIR/render_sync.sh"
     push_results "${ZA_JSON_OUT:-}" "$CLIENT_ID" || true
 fi

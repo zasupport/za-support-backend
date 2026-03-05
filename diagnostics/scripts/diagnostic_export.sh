@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================================================
-# ZA SUPPORT — CyberPulse Assessment Engine
+# ZA SUPPORT — Health Check Scout
 # Version: 3.3
 # Purpose: Maximum-depth hardware, software, security, usage, and system
 #          health diagnostics with auto-installed tooling, structured JSON
-#          output, recommendation engine, and Health Check v11 API push.
+#          output, recommendation engine, and Health Check AI API push.
 # Usage:   sudo ./za_diag_v3.sh [--quick] [--push --client CLIENT_ID] [--json-only]
 # Output:  ~/Desktop/ZA_Diagnostic_<serial>_<date>.txt
 #          ~/Desktop/ZA_Diagnostic_<serial>_<date>.json
@@ -3083,7 +3083,7 @@ chown "$ACTUAL_USER" "$REPORT_FILE" "$JSON_FILE" 2>/dev/null
 # DiagnosticSubmission envelope {serial, hostname, client_id, payload}
 # ═══════════════════════════════════════════════════════════════
 if [[ "$PUSH_MODE" == true ]]; then
-    progress "Pushing to Health Check v11 API..."
+    progress "Pushing to Health Check AI API..."
 # ─── INLINE: RENDER SYNC MODULE (from render_sync.sh) ───
 push_results() {
     local file="$1"

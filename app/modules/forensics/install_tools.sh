@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================================
 # Forensics Module — Tool Installation Script
-# Health Check v11
+# Health Check AI
 # ============================================================
 # Installs all open-source forensic tools supported by the module.
-# Run as root or with sudo on the Health Check v11 server.
+# Run as root or with sudo on the Health Check AI server.
 #
 # Usage:
 #   chmod +x install_tools.sh

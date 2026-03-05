@@ -1,4 +1,4 @@
-# ZA Support Health Check v11 — Claude Instructions
+# ZA Support Health Check AI — Claude Instructions
 # Read this FIRST before writing any code in this project.
 
 ## Project

@@ -1,5 +1,5 @@
 """
-Health Check v11 — ISP Outage Monitor API Router
+Health Check AI — ISP Outage Monitor API Router
 FastAPI endpoints for ISP monitoring, outage management,
 real-time dashboard, and agent connectivity reporting.
 

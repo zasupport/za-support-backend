@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 Tool Wrappers: One class per forensic tool.
 Each wrapper handles subprocess execution, output parsing, and finding extraction.
 """

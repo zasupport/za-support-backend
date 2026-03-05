@@ -1,5 +1,5 @@
 """
-Health Check v11 — South African ISP Registry
+Health Check AI — South African ISP Registry
 Known ISPs with their status page URLs, Downdetector slugs, and probe targets.
 This supplements the database registry with scraping-specific metadata.
 """

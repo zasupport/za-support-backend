@@ -1,5 +1,5 @@
 """
-Health Check v11 — Forensics Module
+Health Check AI — Forensics Module
 Report Generator: Produces structured, human-readable forensic reports.
 Output: JSON (machine-readable) + plain text (human-readable).
 PDF generation via reportlab if available.
@@ -57,7 +57,7 @@ class ForensicsReportGenerator:
         json_report = {
             "report_metadata": {
                 "generated_at":       datetime.utcnow().isoformat(),
-                "generated_by":       "ZA Support Health Check v11 — Forensics Module",
+                "generated_by":       "ZA Support Health Check AI — Forensics Module",
                 "investigation_id":   investigation.get("id"),
                 "client_id":          client_id,
                 "device_name":        investigation.get("device_name"),
@@ -136,7 +136,7 @@ class ForensicsReportGenerator:
         lines += [
             sep,
             "  ZA SUPPORT — DIGITAL FORENSICS INVESTIGATION REPORT",
-            "  Health Check v11 | Forensics Module",
+            "  Health Check AI | Forensics Module",
             sep,
             "",
             f"  Investigation ID : {inv.get('id')}",
@@ -264,7 +264,7 @@ class ForensicsReportGenerator:
             "  Unauthorised disclosure is a POPIA violation.",
             "",
             f"  Generated: {datetime.utcnow().isoformat()} UTC",
-            f"  By: ZA Support Health Check v11 — Forensics Module",
+            f"  By: ZA Support Health Check AI — Forensics Module",
             "  ZA Support | admin@zasupport.com | 064 529 5863",
             "  1 Hyde Park Lane, Hyde Park, Johannesburg, 2196",
             sep,
@@ -458,7 +458,7 @@ class ForensicsReportGenerator:
             canvas.setFont("Helvetica", 14)
             canvas.setFillColor(HexColor("#A8D5D1"))
             canvas.drawCentredString(PAGE_W/2, PAGE_H*0.52 - 22,
-                                     "Health Check v11 — Forensics Module")
+                                     "Health Check AI — Forensics Module")
             # Client + date
             canvas.setFillColor(HexColor("#CCCCCC"))
             canvas.setFont("Helvetica", 10)
@@ -648,7 +648,7 @@ class ForensicsReportGenerator:
             "professional before any conclusions or actions are taken. "
             "This report is CONFIDENTIAL and subject to POPIA (No. 4 of 2013). "
             "Unauthorised disclosure is a POPIA violation. "
-            f"Generated: {datetime.utcnow().isoformat()} UTC by ZA Support Health Check v11.</i>"
+            f"Generated: {datetime.utcnow().isoformat()} UTC by ZA Support Health Check AI.</i>"
         )
         story.append(Paragraph(disc_text, disc))
 
