@@ -452,3 +452,23 @@ def registry_summary() -> dict:
         "coverage_pct": round(len(available) / len(tools) * 100, 1) if tools else 0,
         "by_category": by_category,
     }
+
+
+class ForensicToolRegistry:
+    """Class wrapper around module-level registry functions for dependency injection."""
+
+    def get_all_tools(self) -> list:
+        return [t.to_dict() for t in scan_all_tools()]
+
+    def get_available_tools(self) -> list:
+        return [t.to_dict() for t in get_available_tools()]
+
+    def get_missing_tools(self) -> list:
+        return [t.to_dict() for t in get_missing_tools()]
+
+    def get_summary(self) -> dict:
+        return registry_summary()
+
+    def get_tool(self, tool_id: str):
+        t = get_tool(tool_id)
+        return t.to_dict() if t else None

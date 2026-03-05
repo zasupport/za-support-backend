@@ -31,6 +31,8 @@ from .models import (
     AnalysisScope,
     InvestigationStatus,
 )
+from sqlalchemy.orm import Session
+from app.core.database import get_db
 from .service import ForensicsService
 from .tool_registry import ForensicToolRegistry
 
@@ -38,14 +40,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# Dependency — service instance
-# In production this should be injected via FastAPI dependency injection
-# connected to your DB session factory.
-# ---------------------------------------------------------------------------
 
-def get_service() -> ForensicsService:
-    return ForensicsService()
+def get_service(db: Session = Depends(get_db)) -> ForensicsService:
+    return ForensicsService(db_session=db)
 
 
 def get_registry() -> ForensicToolRegistry:
@@ -161,14 +158,11 @@ async def grant_consent(
 )
 async def start_investigation(
     investigation_id: str,
-    background_tasks: BackgroundTasks,
     service: ForensicsService = Depends(get_service),
 ):
-    """Start forensic analysis in background (consent required)."""
+    """Start forensic analysis (consent required)."""
     try:
-        investigation = await service.start_investigation(
-            investigation_id, background_tasks
-        )
+        investigation = await service.start_investigation(investigation_id)
         return investigation
     except PermissionError as e:
         raise HTTPException(

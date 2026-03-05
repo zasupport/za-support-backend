@@ -24,21 +24,18 @@ from .models import (
     ScanScope,
     ScanSessionResponse,
 )
+from sqlalchemy.orm import Session
+from app.core.database import get_db
 from .service import ConsentError, ScannerService
 
 router = APIRouter(tags=["Compromised Data Scanner"])
 
-# ── Singleton service (initialised on first use) ──────────────────────
+# ── Service factory with DB injection ────────────────────────────────
 
-_service: Optional[ScannerService] = None
-
-
-async def get_service() -> ScannerService:
-    global _service
-    if _service is None:
-        _service = ScannerService()
-        await _service.initialise()
-    return _service
+async def get_service(db: Session = Depends(get_db)) -> ScannerService:
+    svc = ScannerService(db=db)
+    await svc.initialise()
+    return svc
 
 
 # ── Error handler helper ──────────────────────────────────────────────
