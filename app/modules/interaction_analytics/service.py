@@ -76,8 +76,74 @@ def _insert_single(db: Session, device_id: str, client_id: str, entry: Interacti
     )
 
 
+def _check_consent(db: Session, client_id: str) -> bool:
+    """Return True if client has active POPIA consent for interaction analytics."""
+    row = db.execute(
+        """
+        SELECT consented FROM interaction_consent
+        WHERE client_id = :c AND consented = TRUE AND revoked_at IS NULL
+        LIMIT 1
+        """,
+        {"c": client_id},
+    ).fetchone()
+    return row is not None
+
+
+def grant_consent(db: Session, client_id: str, device_id: str, consent_text: str = None) -> dict:
+    """Record POPIA consent for a client."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    db.execute(
+        """
+        INSERT INTO interaction_consent (client_id, device_id, consented, consented_at, consent_text)
+        VALUES (:c, :d, TRUE, :now, :txt)
+        ON CONFLICT (client_id) DO UPDATE
+        SET consented = TRUE, consented_at = :now, device_id = :d,
+            revoked_at = NULL, consent_text = :txt, updated_at = :now
+        """,
+        {"c": client_id, "d": device_id, "now": now, "txt": consent_text},
+    )
+    db.commit()
+    return {"client_id": client_id, "consented": True, "consented_at": now.isoformat()}
+
+
+def revoke_consent(db: Session, client_id: str) -> dict:
+    """Revoke POPIA consent and erase all interaction data for the client (right to erasure)."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    db.execute(
+        """
+        UPDATE interaction_consent
+        SET consented = FALSE, revoked_at = :now, updated_at = :now
+        WHERE client_id = :c
+        """,
+        {"c": client_id, "now": now},
+    )
+    # POPIA right to erasure — delete all interaction data for this client
+    for table in ["interaction_metrics", "interaction_daily_summary",
+                  "interaction_baselines", "frustration_events"]:
+        db.execute(f"DELETE FROM {table} WHERE client_id = :c", {"c": client_id})
+    db.commit()
+    return {"client_id": client_id, "consented": False, "data_erased": True}
+
+
+def get_consent_status(db: Session, client_id: str) -> dict:
+    """Return current consent status for a client."""
+    row = db.execute(
+        "SELECT consented, consented_at, revoked_at FROM interaction_consent WHERE client_id = :c",
+        {"c": client_id},
+    ).fetchone()
+    if not row:
+        return {"client_id": client_id, "consented": False, "consented_at": None}
+    return {"client_id": client_id, "consented": bool(row[0]),
+            "consented_at": row[1], "revoked_at": row[2]}
+
+
 def store_report(db: Session, device_id: str, client_id: str, data: InteractionReport) -> dict:
-    """Insert interaction metrics — accepts single or array."""
+    """Insert interaction metrics — POPIA consent required."""
+    if not _check_consent(db, client_id):
+        raise PermissionError(f"No active POPIA consent for client '{client_id}'. "
+                              "POST /api/v1/interaction-analytics/consent to grant consent first.")
     entries = data.data if isinstance(data.data, list) else [data.data]
     for entry in entries:
         _insert_single(db, device_id, client_id, entry)

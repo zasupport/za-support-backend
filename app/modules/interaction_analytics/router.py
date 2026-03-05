@@ -11,9 +11,35 @@ from app.modules.interaction_analytics.schemas import InteractionReport
 router = APIRouter(prefix="/api/v1/interaction-analytics", tags=["interaction-analytics"])
 
 
+@router.post("/consent", dependencies=[Depends(verify_agent_token)])
+def grant_consent(
+    client_id: str,
+    device_id: str,
+    consent_text: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Grant POPIA consent for interaction analytics data collection."""
+    return service.grant_consent(db, client_id, device_id, consent_text)
+
+
+@router.delete("/consent/{client_id}", dependencies=[Depends(verify_agent_token)])
+def revoke_consent(client_id: str, db: Session = Depends(get_db)):
+    """Revoke POPIA consent and erase all interaction data for the client."""
+    return service.revoke_consent(db, client_id)
+
+
+@router.get("/consent/{client_id}", dependencies=[Depends(verify_agent_token)])
+def get_consent_status(client_id: str, db: Session = Depends(get_db)):
+    """Return POPIA consent status for a client."""
+    return service.get_consent_status(db, client_id)
+
+
 @router.post("/report", dependencies=[Depends(verify_agent_token)])
 def post_report(payload: InteractionReport, db: Session = Depends(get_db)):
-    return service.store_report(db, payload.device_id, payload.client_id, payload)
+    try:
+        return service.store_report(db, payload.device_id, payload.client_id, payload)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
 @router.get("/devices/{device_id}/summary", dependencies=[Depends(verify_agent_token)])

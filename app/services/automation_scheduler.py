@@ -137,8 +137,42 @@ def _event_cleanup(db: Session):
 
 
 def _heartbeat_rollup(db: Session):
-    """Placeholder for heartbeat data aggregation/rollup."""
-    logger.info("[HeartbeatRollup] Rollup placeholder — not yet implemented.")
+    """Aggregate heartbeat records older than 48h into daily summaries, then prune raw rows.
+
+    Keeps one representative row per (serial, day) — the latest heartbeat of that day.
+    Rows newer than 48h are left untouched so real-time queries still work.
+    """
+    from app.models.models import AgentHeartbeatRecord
+    from sqlalchemy import text
+
+    cutoff = datetime.utcnow() - __import__("datetime").timedelta(hours=48)
+
+    # Find serials with old data
+    serials = db.execute(
+        text("SELECT DISTINCT serial FROM agent_heartbeat_records WHERE timestamp < :c"),
+        {"c": cutoff},
+    ).fetchall()
+
+    pruned = 0
+    for (serial,) in serials:
+        # Keep only the latest heartbeat per day for this serial (older than 48h)
+        deleted = db.execute(
+            text("""
+            DELETE FROM agent_heartbeat_records
+            WHERE serial = :s AND timestamp < :c
+              AND id NOT IN (
+                SELECT DISTINCT ON (DATE_TRUNC('day', timestamp)) id
+                FROM agent_heartbeat_records
+                WHERE serial = :s AND timestamp < :c
+                ORDER BY DATE_TRUNC('day', timestamp), timestamp DESC
+              )
+            """),
+            {"s": serial, "c": cutoff},
+        ).rowcount
+        pruned += deleted
+
+    db.commit()
+    logger.info(f"[HeartbeatRollup] Pruned {pruned} raw heartbeat rows across {len(serials)} devices.")
 
 
 # Map job_ids to their actual functions

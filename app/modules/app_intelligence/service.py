@@ -64,6 +64,7 @@ def store_metrics_report(db: Session, device_id: str, client_id: str, report: Ap
         )
         inserted += 1
     db.commit()
+    generate_recommendations(db, device_id, client_id)
     return {"inserted": inserted}
 
 
@@ -238,6 +239,121 @@ def get_productivity(db: Session, device_id: str, period_days: int = 28) -> List
     return [dict(row._mapping) for row in result.fetchall()]
 
 
+def generate_recommendations(db: Session, device_id: str, client_id: str) -> int:
+    """Analyse recent metrics and populate ai_recommendations for this device.
+
+    Rules:
+      CPU avg > 50%  → HIGH   "high CPU usage"
+      CPU avg > 30%  → MEDIUM "elevated CPU usage"
+      Memory avg > 500 MB → HIGH  "high memory usage"
+      Memory avg > 300 MB → MEDIUM "elevated memory usage"
+      Energy avg > 5  → HIGH  "high energy impact — draining battery"
+      Responsiveness < 70 with unresponsive > 5 → HIGH "app frequently unresponsive"
+      Boot > 120s → HIGH  "slow startup"
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    # Remove stale undismissed recs so we regenerate fresh each time
+    db.execute(
+        "DELETE FROM ai_recommendations WHERE device_id = :d AND dismissed_at IS NULL",
+        {"d": device_id},
+    )
+
+    recs = []
+
+    # --- App-level rules ---
+    app_rows = db.execute(
+        """
+        SELECT
+            app_name,
+            app_bundle_id,
+            AVG(cpu_avg_percent)        AS avg_cpu,
+            AVG(memory_avg_mb)          AS avg_mem,
+            AVG(energy_impact_avg)      AS avg_energy,
+            AVG(responsiveness_score)   AS avg_resp,
+            SUM(unresponsive_interactions) AS total_unresponsive
+        FROM app_resource_metrics
+        WHERE device_id = :d AND timestamp >= :c
+        GROUP BY app_name, app_bundle_id
+        """,
+        {"d": device_id, "c": cutoff},
+    ).fetchall()
+
+    for row in app_rows:
+        r = dict(row._mapping)
+        name = r["app_name"] or r["app_bundle_id"] or "Unknown app"
+        cpu  = float(r["avg_cpu"]    or 0)
+        mem  = float(r["avg_mem"]    or 0)
+        ener = float(r["avg_energy"] or 0)
+        resp = float(r["avg_resp"]   or 100)
+        unr  = int(r["total_unresponsive"] or 0)
+
+        if cpu > 50:
+            recs.append(("HIGH", "performance",
+                f"{name} is consuming high CPU (avg {cpu:.0f}%) — consider restarting or updating it.",
+                {"app": name, "avg_cpu": round(cpu, 1)}))
+        elif cpu > 30:
+            recs.append(("MEDIUM", "performance",
+                f"{name} has elevated CPU usage (avg {cpu:.0f}%) over the past 7 days.",
+                {"app": name, "avg_cpu": round(cpu, 1)}))
+
+        if mem > 500:
+            recs.append(("HIGH", "memory",
+                f"{name} is using high memory (avg {mem:.0f} MB) — a restart may improve performance.",
+                {"app": name, "avg_memory_mb": round(mem, 0)}))
+        elif mem > 300:
+            recs.append(("MEDIUM", "memory",
+                f"{name} has elevated memory usage (avg {mem:.0f} MB).",
+                {"app": name, "avg_memory_mb": round(mem, 0)}))
+
+        if ener > 5:
+            recs.append(("HIGH", "battery",
+                f"{name} has a high energy impact (avg {ener:.1f}) and is reducing battery life.",
+                {"app": name, "avg_energy_impact": round(ener, 1)}))
+
+        if resp < 70 and unr > 5:
+            recs.append(("HIGH", "responsiveness",
+                f"{name} is frequently unresponsive ({unr} unresponsive interactions) — update or reinstall recommended.",
+                {"app": name, "avg_responsiveness": round(resp, 0), "unresponsive_interactions": unr}))
+
+    # --- Startup rules ---
+    startup_row = db.execute(
+        """
+        SELECT AVG(boot_to_ready_seconds) AS avg_boot, AVG(total_login_items) AS avg_items
+        FROM startup_reports
+        WHERE device_id = :d AND created_at >= :c
+        """,
+        {"d": device_id, "c": cutoff},
+    ).fetchone()
+
+    if startup_row:
+        avg_boot  = float(startup_row[0] or 0)
+        avg_items = float(startup_row[1] or 0)
+        if avg_boot > 120:
+            recs.append(("HIGH", "startup",
+                f"Slow startup detected (avg {avg_boot:.0f}s) — {avg_items:.0f} login items may be contributing.",
+                {"avg_boot_seconds": round(avg_boot, 0), "avg_login_items": round(avg_items, 0)}))
+        elif avg_boot > 60:
+            recs.append(("MEDIUM", "startup",
+                f"Startup is taking longer than expected (avg {avg_boot:.0f}s).",
+                {"avg_boot_seconds": round(avg_boot, 0)}))
+
+    import json as _json
+    for priority, category, text, data in recs:
+        db.execute(
+            """
+            INSERT INTO ai_recommendations
+                (device_id, client_id, recommendation_text, category, priority, supporting_data)
+            VALUES (:d, :c, :t, :cat, :pri, :dat::jsonb)
+            """,
+            {"d": device_id, "c": client_id, "t": text,
+             "cat": category, "pri": priority, "dat": _json.dumps(data)},
+        )
+
+    db.commit()
+    return len(recs)
+
+
 def get_recommendations(db: Session, device_id: str) -> List[dict]:
     """Fetch AI recommendations for a device."""
     result = db.execute(
@@ -245,7 +361,9 @@ def get_recommendations(db: Session, device_id: str) -> List[dict]:
         SELECT * FROM ai_recommendations
         WHERE device_id = :device_id
           AND dismissed_at IS NULL
-        ORDER BY generated_at DESC
+        ORDER BY
+            CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+            generated_at DESC
         LIMIT 20
         """,
         {"device_id": device_id},

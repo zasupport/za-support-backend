@@ -14,7 +14,11 @@ router = APIRouter(prefix="/api/v1/vault", tags=["vault"])
 
 
 def _performer(request: Request) -> str:
-    return "courtney"
+    # Use the Authorization header token's last 8 chars as a stable identifier,
+    # falling back to client IP so audit logs reflect who made the request.
+    auth = request.headers.get("Authorization", "")
+    token = auth.removeprefix("Bearer ").strip()
+    return f"token:{token[-8:]}" if token else _ip(request)
 
 
 def _ip(request: Request) -> str:
