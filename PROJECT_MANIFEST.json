@@ -1,0 +1,51 @@
+{
+  "name": "za-support-backend",
+  "display_name": "ZA Support Health Check v11",
+  "version": "11.2.0",
+  "description": "Device monitoring backend — receives CyberPulse diagnostic data, ISP outage detection, security events, app intelligence, interaction analytics",
+  "owner": "Courtney Bentley / ZA Support",
+  "stack": {
+    "framework": "FastAPI",
+    "language": "Python 3.11",
+    "database": "PostgreSQL + TimescaleDB",
+    "cache": "Redis",
+    "async_driver": "asyncpg"
+  },
+  "deployment": {
+    "platform": "Render",
+    "region": "Frankfurt (EU)",
+    "service": "za-health-check-main",
+    "database": "za-db",
+    "repo": "zasupport/za-support-backend",
+    "branch": "main",
+    "auto_deploy": true,
+    "live_url": "https://api.zasupport.com"
+  },
+  "env_vars": [
+    { "name": "DATABASE_URL", "description": "PostgreSQL connection string", "required": true, "secret": true },
+    { "name": "REDIS_URL", "description": "Redis connection string", "required": true, "secret": true },
+    { "name": "AGENT_AUTH_TOKEN", "description": "Primary agent bearer token", "required": true, "secret": true },
+    { "name": "AGENT_AUTH_TOKEN_OLD", "description": "Rotation fallback token (empty = disabled)", "required": false, "secret": true },
+    { "name": "VAULT_ENCRYPTION_KEY", "description": "Fernet key for vault module encryption", "required": false, "secret": true }
+  ],
+  "modules": [
+    { "name": "vault", "prefix": "/api/v1/vault/", "status": "active" },
+    { "name": "shield_agent", "prefix": "/api/v1/shield/", "status": "active" },
+    { "name": "app_intelligence", "prefix": "/api/v1/app-intelligence/", "status": "active" },
+    { "name": "interaction_analytics", "prefix": "/api/v1/interaction-analytics/", "status": "active" },
+    { "name": "breach_scanner", "prefix": "/api/v1/breach/", "status": "active" },
+    { "name": "forensics", "prefix": "/api/v1/forensics/", "status": "pending" },
+    { "name": "networking_integrations", "prefix": "/api/v1/isp/networking/", "status": "pending" }
+  ],
+  "ecosystem": {
+    "depends_on": [],
+    "depended_by": [
+      { "project": "za-support-dashboard", "reason": "Dashboard reads all monitoring data" },
+      { "project": "za-diagnostic-v3-engine", "reason": "V3 pushes diagnostic JSON to /api/v1/agent/diagnostics" }
+    ],
+    "integrations": [
+      { "project": "Workshop PTG", "trigger": "HC CRITICAL alert → PTG job creation", "status": "planned" },
+      { "project": "CyberShield", "trigger": "Shield events feed CyberShield alerts", "status": "planned" }
+    ]
+  }
+}
