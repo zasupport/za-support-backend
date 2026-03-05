@@ -71,7 +71,7 @@ def update_entry(db: Session, entry_id: int, data: dict, performer: str, ip: str
             data[field] = encrypt_value(data[field])
     for key, value in data.items():
         setattr(entry, key, value)
-    entry.updated_at = datetime.utcnow()
+    entry.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(entry)
     _audit(db, entry_id, "updated", performer, ip, f"Updated fields: {', '.join(data.keys())}")
@@ -87,7 +87,7 @@ def delete_entry(db: Session, entry_id: int, performer: str, ip: str) -> bool:
     if not entry:
         return False
     entry.is_active = False
-    entry.updated_at = datetime.utcnow()
+    entry.updated_at = datetime.now(timezone.utc)
     db.commit()
     _audit(db, entry_id, "deleted", performer, ip, "Soft deleted")
     return True
@@ -101,8 +101,8 @@ def rotate_entry(db: Session, entry_id: int, performer: str, ip: str) -> Optiona
     )
     if not entry:
         return None
-    entry.last_rotated = datetime.utcnow()
-    entry.updated_at = datetime.utcnow()
+    entry.last_rotated = datetime.now(timezone.utc)
+    entry.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(entry)
     _audit(db, entry_id, "rotated", performer, ip, "Password rotation recorded")

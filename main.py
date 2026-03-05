@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Health Check AI API",
     version="11.2.0",
-    description="Intelligence processing engine for ZA Support — ingests Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the CyberPulse dashboard.",
+    description="Intelligence processing engine for ZA Support — ingests Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the Health Check AI dashboard.",
     lifespan=lifespan,
 )
 

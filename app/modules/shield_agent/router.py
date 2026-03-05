@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
+from sqlalchemy import text
+
 from app.core.agent_auth import verify_agent_token
 from app.core.database import get_db
 
@@ -30,13 +32,13 @@ def receive_shield_event(event: ShieldEvent, db: Session = Depends(get_db)):
             ts = None
 
     db.execute(
-        """
+        text("""
         INSERT INTO shield_events
             (serial, hostname, severity, event_type, path, detail, timestamp)
         VALUES
             (:serial, :hostname, :severity, :event_type, :path, :detail,
              COALESCE(:timestamp, NOW()))
-        """,
+        """),
         {
             "serial": event.serial,
             "hostname": event.hostname,
@@ -74,7 +76,7 @@ def list_shield_events(
 
     query += " ORDER BY timestamp DESC LIMIT 500"
 
-    result = db.execute(query, params)
+    result = db.execute(text(query), params)
     rows = result.fetchall()
 
     events = []

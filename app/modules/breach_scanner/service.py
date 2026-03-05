@@ -61,23 +61,26 @@ class ScannerService:
         config_warnings = ScannerConfig.validate()
 
         if self._db:
-            await self._scheduler.load_from_db(self._db)
+            # load_from_db is now synchronous SQLAlchemy — no await
+            self._scheduler.load_from_db(self._db)
             # Load active consent records into memory so the gate works across requests
             try:
-                rows = await self._db.fetch(
-                    """
+                from sqlalchemy import text
+                rows = self._db.execute(
+                    text("""
                     SELECT client_id, granted_by, granted_by_role, consent_scope, notes
                     FROM breach_scanner.breach_consent
                     WHERE status = 'granted'
-                    """
-                )
+                    """)
+                ).fetchall()
                 for row in rows:
+                    r = dict(row._mapping)
                     rec = ConsentRecord(
-                        client_id=row["client_id"],
-                        granted_by=row["granted_by"],
-                        granted_by_role=row["granted_by_role"],
-                        consent_scope=row["consent_scope"],
-                        notes=row.get("notes"),
+                        client_id=r["client_id"],
+                        granted_by=r["granted_by"],
+                        granted_by_role=r["granted_by_role"],
+                        consent_scope=r["consent_scope"],
+                        notes=r.get("notes"),
                     )
                     self._consent[rec.client_id] = rec
                 logger.info(
@@ -103,22 +106,26 @@ class ScannerService:
         self._consent[record.client_id] = record
 
         if self._db:
-            await self._db.execute(
-                """
+            from sqlalchemy import text
+            self._db.execute(
+                text("""
                 INSERT INTO breach_scanner.breach_consent
                     (client_id, granted_by, granted_by_role, consent_scope, notes, status)
-                VALUES ($1, $2, $3, $4, $5, 'granted')
+                VALUES (:cid, :by, :role, :scope, :notes, 'granted')
                 ON CONFLICT (client_id) DO UPDATE SET
-                    granted_by = $2, granted_by_role = $3,
-                    consent_scope = $4, notes = $5,
+                    granted_by = :by, granted_by_role = :role,
+                    consent_scope = :scope, notes = :notes,
                     status = 'granted', granted_at = NOW()
-                """,
-                record.client_id,
-                record.granted_by,
-                record.granted_by_role,
-                record.consent_scope,
-                record.notes,
+                """),
+                {
+                    "cid":   str(record.client_id),
+                    "by":    record.granted_by,
+                    "role":  record.granted_by_role,
+                    "scope": record.consent_scope,
+                    "notes": record.notes,
+                },
             )
+            self._db.commit()
 
         logger.info(
             "POPIA consent granted: client=%s by=%s (%s)",
@@ -133,14 +140,12 @@ class ScannerService:
         self._consent.pop(client_id, None)
 
         if self._db:
-            await self._db.execute(
-                """
-                UPDATE breach_scanner.breach_consent
-                SET status = 'revoked', revoked_at = NOW()
-                WHERE client_id = $1
-                """,
-                client_id,
+            from sqlalchemy import text
+            self._db.execute(
+                text("UPDATE breach_scanner.breach_consent SET status = 'revoked', revoked_at = NOW() WHERE client_id = :cid"),
+                {"cid": str(client_id)},
             )
+            self._db.commit()
 
         # Remove all schedules for this client
         schedules = [
@@ -165,21 +170,20 @@ class ScannerService:
             }
 
         if self._db:
-            row = await self._db.fetchrow(
-                """
-                SELECT status, granted_by, granted_by_role, consent_scope
-                FROM breach_scanner.breach_consent
-                WHERE client_id = $1
-                """,
-                client_id,
-            )
-            if row and row["status"] == "granted":
-                return {
-                    "status": "granted",
-                    "granted_by": row["granted_by"],
-                    "granted_by_role": row["granted_by_role"],
-                    "scope": row["consent_scope"],
-                }
+            from sqlalchemy import text
+            row = self._db.execute(
+                text("SELECT status, granted_by, granted_by_role, consent_scope FROM breach_scanner.breach_consent WHERE client_id = :cid"),
+                {"cid": str(client_id)},
+            ).fetchone()
+            if row:
+                r = dict(row._mapping)
+                if r["status"] == "granted":
+                    return {
+                        "status": "granted",
+                        "granted_by": r["granted_by"],
+                        "granted_by_role": r["granted_by_role"],
+                        "scope": r["consent_scope"],
+                    }
 
         return {"status": "not_granted"}
 
@@ -252,24 +256,27 @@ class ScannerService:
         if not self._db:
             return []
 
-        query = """
-            SELECT * FROM breach_scanner.scan_findings f
-            JOIN breach_scanner.scan_sessions s ON f.scan_id = s.id
-            WHERE s.device_id = $1 AND s.client_id = $2
-        """
-        params = [device_id, client_id]
+        from sqlalchemy import text
+
+        where = "s.device_id = :did AND s.client_id = :cid"
+        bind: dict = {"did": str(device_id), "cid": str(client_id)}
 
         if not include_resolved:
-            query += " AND f.resolved_at IS NULL"
+            where += " AND f.resolved_at IS NULL"
 
         if severity_filter:
-            query += f" AND f.severity = ${len(params) + 1}"
-            params.append(severity_filter.value)
+            where += " AND f.severity = :sev"
+            bind["sev"] = severity_filter.value
 
-        query += " ORDER BY f.found_at DESC LIMIT 200"
+        query = f"""
+            SELECT f.* FROM breach_scanner.scan_findings f
+            JOIN breach_scanner.scan_sessions s ON f.scan_id = s.id
+            WHERE {where}
+            ORDER BY f.found_at DESC LIMIT 200
+        """
 
-        rows = await self._db.fetch(query, *params)
-        return [self._row_to_finding(row) for row in rows]
+        rows = self._db.execute(text(query), bind).fetchall()
+        return [self._row_to_finding(dict(r._mapping)) for r in rows]
 
     async def get_device_summary(
         self,
@@ -324,17 +331,17 @@ class ScannerService:
         self._require_consent(client_id)
 
         if self._db:
-            await self._db.execute(
-                """
+            from sqlalchemy import text
+            self._db.execute(
+                text("""
                 UPDATE breach_scanner.scan_findings
-                SET resolved_at = NOW(), resolved_by = $2,
-                    is_false_positive = $3
-                WHERE id = $1
-                """,
-                finding_id,
-                resolved_by,
-                is_false_positive,
+                SET resolved_at = NOW(), resolved_by = :by,
+                    is_false_positive = :fp
+                WHERE id = :id
+                """),
+                {"id": str(finding_id), "by": resolved_by, "fp": is_false_positive},
             )
+            self._db.commit()
 
         action = "false_positive" if is_false_positive else "resolved"
         logger.info("Finding %s marked as %s by %s", finding_id, action, resolved_by)
@@ -360,44 +367,42 @@ class ScannerService:
                 provider_health=provider_health,
             )
 
-        stats = await self._db.fetchrow(
-            """
+        from sqlalchemy import text
+
+        stats = dict(self._db.execute(text("""
             SELECT
                 COUNT(DISTINCT device_id) as devices,
                 COUNT(*) as scans,
                 MAX(completed_at) as last_scan
             FROM breach_scanner.scan_sessions
             WHERE status = 'completed'
-            """
-        )
+        """)).fetchone()._mapping)
 
-        finding_stats = await self._db.fetchrow(
-            """
+        finding_stats = dict(self._db.execute(text("""
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE corroboration_status = 'confirmed_malicious' AND resolved_at IS NULL) as active_threats,
                 COUNT(*) FILTER (WHERE corroboration_status = 'confirmed_malicious') as confirmed_total
             FROM breach_scanner.scan_findings
-            """
-        )
+        """)).fetchone()._mapping)
 
-        category_rows = await self._db.fetch(
-            """
-            SELECT category, COUNT(*) as cnt
-            FROM breach_scanner.scan_findings
-            WHERE resolved_at IS NULL
-            GROUP BY category ORDER BY cnt DESC LIMIT 10
-            """
-        )
+        category_rows = [
+            dict(r._mapping) for r in self._db.execute(text("""
+                SELECT category, COUNT(*) as cnt
+                FROM breach_scanner.scan_findings
+                WHERE resolved_at IS NULL
+                GROUP BY category ORDER BY cnt DESC LIMIT 10
+            """)).fetchall()
+        ]
 
-        technique_rows = await self._db.fetch(
-            """
-            SELECT mitre_technique, COUNT(*) as cnt
-            FROM breach_scanner.scan_findings
-            WHERE mitre_technique IS NOT NULL AND resolved_at IS NULL
-            GROUP BY mitre_technique ORDER BY cnt DESC LIMIT 10
-            """
-        )
+        technique_rows = [
+            dict(r._mapping) for r in self._db.execute(text("""
+                SELECT mitre_technique, COUNT(*) as cnt
+                FROM breach_scanner.scan_findings
+                WHERE mitre_technique IS NOT NULL AND resolved_at IS NULL
+                GROUP BY mitre_technique ORDER BY cnt DESC LIMIT 10
+            """)).fetchall()
+        ]
 
         return DashboardStats(
             total_devices_scanned=stats["devices"] or 0,
@@ -435,7 +440,7 @@ class ScannerService:
             )
 
         if self._db:
-            await self._scheduler.save_to_db(self._db)
+            self._scheduler.save_to_db(self._db)
 
         return {
             "device_id": str(device_id),

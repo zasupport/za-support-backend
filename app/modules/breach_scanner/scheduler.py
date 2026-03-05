@@ -163,50 +163,64 @@ class ScanScheduler:
         if self._task:
             self._task.cancel()
 
-    async def load_from_db(self, db) -> int:
-        """Load schedules from database."""
-        rows = await db.fetch(
-            """
-            SELECT device_id, client_id, scope, interval_hours, enabled,
-                   last_scan_at, next_scan_at
-            FROM breach_scanner.scan_schedules
-            WHERE enabled = true
-            """
-        )
+    def load_from_db(self, db) -> int:
+        """Load schedules from database (SQLAlchemy Session)."""
+        from sqlalchemy import text
+        try:
+            rows = db.execute(
+                text("""
+                SELECT device_id, client_id, scope, interval_hours, enabled,
+                       last_scan_at, next_scan_at
+                FROM breach_scanner.scan_schedules
+                WHERE enabled = true
+                """)
+            ).fetchall()
+        except Exception as exc:
+            logger.warning("[breach_scanner] Could not load schedules: %s", exc)
+            return 0
+
         for row in rows:
+            r = dict(row._mapping)
             schedule = ScanSchedule(
-                device_id=row["device_id"],
-                client_id=row["client_id"],
-                scope=ScanScope(row["scope"]),
-                interval_hours=row["interval_hours"],
-                enabled=row["enabled"],
+                device_id=r["device_id"],
+                client_id=r["client_id"],
+                scope=ScanScope(r["scope"]),
+                interval_hours=r["interval_hours"],
+                enabled=r["enabled"],
             )
-            schedule.last_scan_at = row["last_scan_at"]
-            schedule.next_scan_at = row["next_scan_at"]
+            schedule.last_scan_at = r["last_scan_at"]
+            schedule.next_scan_at = r["next_scan_at"]
             self._schedules[schedule.device_id] = schedule
 
         logger.info("Loaded %d scan schedules from database", len(rows))
         return len(rows)
 
-    async def save_to_db(self, db) -> None:
-        """Persist all schedules to database."""
+    def save_to_db(self, db) -> None:
+        """Persist all schedules to database (SQLAlchemy Session)."""
+        from sqlalchemy import text
         for schedule in self._schedules.values():
-            await db.execute(
-                """
-                INSERT INTO breach_scanner.scan_schedules
-                    (device_id, client_id, scope, interval_hours, enabled,
-                     last_scan_at, next_scan_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (device_id) DO UPDATE SET
-                    scope = $3, interval_hours = $4, enabled = $5,
-                    last_scan_at = $6, next_scan_at = $7,
-                    updated_at = NOW()
-                """,
-                schedule.device_id,
-                schedule.client_id,
-                schedule.scope.value,
-                schedule.interval_hours,
-                schedule.enabled,
-                schedule.last_scan_at,
-                schedule.next_scan_at,
-            )
+            try:
+                db.execute(
+                    text("""
+                    INSERT INTO breach_scanner.scan_schedules
+                        (device_id, client_id, scope, interval_hours, enabled,
+                         last_scan_at, next_scan_at)
+                    VALUES (:did, :cid, :scope, :hours, :enabled, :last, :next)
+                    ON CONFLICT (device_id) DO UPDATE SET
+                        scope = :scope, interval_hours = :hours, enabled = :enabled,
+                        last_scan_at = :last, next_scan_at = :next,
+                        updated_at = NOW()
+                    """),
+                    {
+                        "did":     schedule.device_id,
+                        "cid":     schedule.client_id,
+                        "scope":   schedule.scope.value,
+                        "hours":   schedule.interval_hours,
+                        "enabled": schedule.enabled,
+                        "last":    schedule.last_scan_at,
+                        "next":    schedule.next_scan_at,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("[breach_scanner] Could not save schedule for %s: %s",
+                               schedule.device_id, exc)
