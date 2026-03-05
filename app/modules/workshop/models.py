@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 from sqlalchemy import Column, Integer, String, Text, Numeric, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
@@ -24,8 +24,8 @@ class WorkshopJob(Base):
     labour_minutes = Column(Integer)
     total_incl_vat = Column(Numeric(10, 2))
     notes          = Column(Text)
-    created_at     = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at     = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at     = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at     = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     line_items = relationship("WorkshopLineItem", back_populates="job", cascade="all, delete-orphan")
     history    = relationship("WorkshopJobHistory", back_populates="job", cascade="all, delete-orphan")
@@ -41,7 +41,7 @@ class WorkshopLineItem(Base):
     unit_price  = Column(Numeric(10, 2))
     line_total  = Column(Numeric(10, 2))
     item_type   = Column(String, default="labour")
-    created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     job = relationship("WorkshopJob", back_populates="line_items")
 
@@ -55,6 +55,6 @@ class WorkshopJobHistory(Base):
     to_status   = Column(String, nullable=False)
     note        = Column(Text)
     changed_by  = Column(String, default="system")
-    changed_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
+    changed_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     job = relationship("WorkshopJob", back_populates="history")

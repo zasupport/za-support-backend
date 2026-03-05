@@ -3,7 +3,7 @@ Health Check AI — Forensics Module
 Database Models (SQLAlchemy) and Pydantic Schemas
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from enum import Enum
 import uuid
@@ -106,7 +106,7 @@ class ForensicInvestigation(Base):
     consent_timestamp    = Column(DateTime, nullable=True)
 
     # Timestamps
-    created_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     started_at      = Column(DateTime, nullable=True)
     completed_at    = Column(DateTime, nullable=True)
 
@@ -181,7 +181,7 @@ class ForensicEvidence(Base):
     hash_verified    = Column(Boolean, default=False)
     hash_verified_at = Column(DateTime, nullable=True)
 
-    collected_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
+    collected_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     description      = Column(Text, nullable=True)
 
     investigation = relationship("ForensicInvestigation", back_populates="evidence")
@@ -214,7 +214,7 @@ class ForensicFinding(Base):
     reviewed_at          = Column(DateTime, nullable=True)
     review_notes         = Column(Text, nullable=True)
 
-    created_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     investigation = relationship("ForensicInvestigation", back_populates="findings")
 
@@ -228,7 +228,7 @@ class ForensicReport(Base):
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     investigation_id = Column(UUID(as_uuid=True), ForeignKey("forensic_investigations.id"), nullable=False)
 
-    generated_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
+    generated_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     generated_by     = Column(String(100), nullable=False)
 
     report_path      = Column(String(1000), nullable=True)   # path to PDF file
