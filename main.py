@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import get_engine, Base
 from app.api import health, devices, network, alerts, dashboard, diagnostics, isp, agent, system
 from diagnostics.router import router as diagnostics_router
+from app.modules.vault.router import router as vault_router
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
 from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
 import logging
@@ -59,6 +60,7 @@ app.include_router(isp.router, prefix="/api/v1/isp", tags=["ISP Monitor"])
 app.include_router(agent.router, prefix="/api/v1/agent", tags=["Agent"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["System"])
 app.include_router(diagnostics_router)
+app.include_router(vault_router)
 
 
 @app.get("/", tags=["Root"])
