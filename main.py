@@ -2,7 +2,7 @@
 Health Check AI v11.2
 Production deployment - Render.com
 Intelligence processing engine — receives Scout data, applies risk scoring,
-monitors ISPs, runs security modules, and serves the CyberPulse dashboard.
+monitors ISPs, runs security modules, and serves the Health Check AI dashboard.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
