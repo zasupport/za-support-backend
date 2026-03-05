@@ -28,6 +28,18 @@ services:
       - key: FORMBRICKS_WEBHOOK_SECRET
         sync: false
 
+      # SMTP notifications (run ~/bin/za-render-setup.sh to set HC_NOTIFY_SMTP_PASS)
+      - key: HC_NOTIFY_SMTP_HOST
+        value: "mail.hexonline.co.za"
+      - key: HC_NOTIFY_SMTP_PORT
+        value: "587"
+      - key: HC_NOTIFY_SMTP_USER
+        value: "Courtney@zasupport.com"
+      - key: HC_NOTIFY_SMTP_PASS
+        sync: false
+      - key: HC_NOTIFY_EMAIL_TO
+        value: "courtney@zasupport.com"
+
 databases:
   - name: zasupportdb
     plan: free

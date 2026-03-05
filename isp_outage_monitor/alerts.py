@@ -117,18 +117,34 @@ class AlertManager:
     # Email alert
     # ==========================================================
     async def _send_email_alert(self, alert: OutageAlert):
-        """
-        Queue an email alert. In production, integrate with your
-        existing email system (SendGrid, SES, SMTP, etc.).
-        For now, stores the alert payload for the email worker to pick up.
-        """
-        # This would integrate with your existing Health Check email system
-        logger.info(
-            f"Email alert queued: {alert.alert_type} for {alert.isp_name} "
-            f"affecting {len(alert.affected_clients)} clients"
+        """Send email alert via notification engine SMTP."""
+        import asyncio
+        from app.services.notification_engine import send_email
+
+        emoji_map = {"isp_outage": "OUTAGE", "isp_degraded": "DEGRADED", "isp_restored": "RESTORED"}
+        status = emoji_map.get(alert.alert_type, alert.alert_type.upper())
+        subject = f"[ZA Support] ISP {status}: {alert.isp_name}"
+
+        clients_text = (
+            "\n".join(f"  - {c}" for c in alert.affected_clients)
+            if alert.affected_clients else "  None mapped"
         )
-        # TODO: Push to Redis queue for email worker
-        # await redis.rpush("email:alerts", alert.model_dump_json())
+        body = (
+            f"ISP Alert — {alert.isp_name}\n"
+            f"{'=' * 40}\n"
+            f"Status    : {status}\n"
+            f"Severity  : {alert.severity}\n"
+            f"Detected  : {alert.started_at.strftime('%H:%M on %d/%m/%Y')}\n"
+            f"Method    : {alert.detection_method}\n"
+            f"Message   : {alert.message}\n\n"
+            f"Affected clients:\n{clients_text}\n\n"
+            f"Dashboard : https://app.zasupport.com/isp\n"
+        )
+
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: send_email("courtney@zasupport.com", subject, body)
+        )
+        logger.info(f"Email alert sent: {status} for {alert.isp_name}")
 
     # ==========================================================
     # WhatsApp (future)
