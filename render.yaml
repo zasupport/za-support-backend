@@ -24,7 +24,7 @@ services:
       - key: ISP_MONITOR_ENABLED
         value: "true"
       - key: AGENT_AUTH_TOKEN
-        value: "fTiuW8z2Aspb8O0Q0kqEr8U7Fe3iIwXdmNmWqP7XOrOs88Pv8teOwpplf_6y0SYU"
+        sync: false
       - key: FORMBRICKS_WEBHOOK_SECRET
         sync: false
 

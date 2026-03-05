@@ -4,6 +4,7 @@ Handles device auto-registration, snapshot storage, and metric extraction.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -198,7 +199,7 @@ def store_snapshot(
             "risk_score": risk_score,
             "risk_level": risk_level,
             "rec_count":  raw_json.get("recommendation_count"),
-            "raw_json":   __import__("json").dumps(raw_json),
+            "raw_json":   json.dumps(raw_json),
             "raw_txt":    raw_txt,
         },
     )
