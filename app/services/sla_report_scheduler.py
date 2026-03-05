@@ -5,7 +5,7 @@ the latest diagnostic snapshot, and emails it to them automatically.
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
@@ -39,7 +39,7 @@ def run_sla_monthly_reports():
             logger.info("[SLAReports] No SLA clients found.")
             return
 
-        month_str = datetime.now().strftime("%B %Y")
+        month_str = datetime.now(timezone.utc).strftime("%B %Y")
         logger.info(f"[SLAReports] Generating monthly reports for {len(sla_clients)} SLA clients — {month_str}")
 
         for c in sla_clients:
@@ -87,7 +87,7 @@ def run_sla_monthly_reports():
                 failed.append(f"{client_name} (PDF error)")
                 continue
 
-            date_for_file = datetime.now().strftime("%d %m %Y")
+            date_for_file = datetime.now(timezone.utc).strftime("%d %m %Y")
             filename = f"ZA Support CyberPulse {client_name} {date_for_file}.pdf"
 
             subject = f"Your Monthly ZA Support CyberPulse Report — {month_str}"
