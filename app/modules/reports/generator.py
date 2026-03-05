@@ -609,6 +609,11 @@ def _patch_nextpagetemplate():
         from reportlab.platypus import NextPageTemplate as NPT
         return NPT
     except ImportError:
+        logger.warning(
+            "NextPageTemplate not available in this reportlab version — "
+            "multi-page PDFs will render without page-template transitions. "
+            "Upgrade to reportlab >= 3.0 to fix."
+        )
         class _NPT:
             def __init__(self, pt): pass
             def wrap(self, *a): return 0, 0
