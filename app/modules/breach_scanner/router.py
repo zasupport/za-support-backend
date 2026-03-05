@@ -126,6 +126,21 @@ async def submit_agent_report(
     """
     try:
         session = await service.submit_agent_report(report)
+
+        # Emit event if critical or high confirmed findings found
+        if (session.critical_findings > 0 or session.high_findings > 0) and session.confirmed_malicious > 0:
+            import asyncio
+            from app.core.event_bus import emit_event
+            asyncio.create_task(emit_event("breach.critical_found", {
+                "client_id":          str(session.client_id),
+                "device_id":          str(session.device_id),
+                "scan_id":            str(session.id),
+                "critical_findings":  session.critical_findings,
+                "high_findings":      session.high_findings,
+                "confirmed_malicious": session.confirmed_malicious,
+                "scanners_run":       session.scanners_run,
+            }))
+
         return session
     except ConsentError as exc:
         _handle_consent_error(exc)

@@ -15,14 +15,17 @@ from app.services.patch_monitor import check_all_devices as patch_check
 from app.services.backup_monitor import check_all_devices as backup_check
 from app.services.report_generator import generate_all_reports
 from app.services.weekly_digest import run_weekly_digest
-import app.services.isp_outage_notifier  # noqa: F401 — registers isp.outage_detected subscriber
-import app.services.report_delivery      # noqa: F401 — registers diagnostics.upload_received → auto-deliver PDF
-import app.services.post_visit_followup  # noqa: F401 — registers workshop.job_completed → client follow-up email
+import app.services.isp_outage_notifier      # noqa: F401 — registers isp.outage_detected subscriber
+import app.services.report_delivery          # noqa: F401 — registers diagnostics.upload_received → auto-deliver PDF
+import app.services.post_visit_followup      # noqa: F401 — registers workshop.job_completed → client follow-up email
+import app.services.breach_email_notifier    # noqa: F401 — registers breach.critical_found → email+Slack alert
+import app.services.forensics_notifier       # noqa: F401 — registers forensics.critical_findings → email+Slack+workshop job
 from app.services.stale_diagnostic_alerter import run_stale_diagnostic_check
 from app.services.previsit_reminder import run_previsit_reminders
 from app.services.sla_report_scheduler import run_sla_monthly_reports
 from app.services.critical_escalation import run_critical_escalation
 from app.services.morning_email import run_morning_email
+from app.services.client_monthly_email import run_monthly_client_emails
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,7 @@ JOB_DEFS = [
     ("previsit_reminder",      "Pre-Visit Client Reminders", run_previsit_reminders,     {"trigger": "cron", "hour": 7, "minute": 30}),
     ("sla_monthly_reports",    "SLA Monthly Report Delivery",run_sla_monthly_reports,    {"trigger": "cron", "day": 1, "hour": 6, "minute": 0}),
     ("critical_escalation",    "Critical Job Escalation",    run_critical_escalation,    {"trigger": "cron", "hour": 9, "minute": 0}),
+    ("client_monthly_email",   "Monthly Client Health Email", run_monthly_client_emails,  {"trigger": "cron", "day": 1, "hour": 8, "minute": 0}),
     ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
     ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
     ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),

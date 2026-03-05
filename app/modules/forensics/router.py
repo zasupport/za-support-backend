@@ -163,6 +163,24 @@ async def start_investigation(
     """Start forensic analysis (consent required)."""
     try:
         investigation = await service.start_investigation(investigation_id)
+
+        # Emit event if critical/high findings found so workshop job can be auto-created
+        critical = investigation.get("findings_critical", 0) or 0
+        high     = investigation.get("findings_high",     0) or 0
+        if critical > 0 or high > 0:
+            import asyncio
+            from app.core.event_bus import emit_event
+            asyncio.create_task(emit_event("forensics.critical_findings", {
+                "investigation_id":  investigation_id,
+                "client_id":         investigation.get("client_id"),
+                "device_id":         investigation.get("device_id"),
+                "serial":            investigation.get("serial"),
+                "findings_critical": critical,
+                "findings_high":     high,
+                "findings_total":    investigation.get("findings_total", critical + high),
+                "scope":             investigation.get("scope", "unknown"),
+            }))
+
         return investigation
     except PermissionError as e:
         raise HTTPException(
