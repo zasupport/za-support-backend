@@ -102,6 +102,15 @@ async def upload_diagnostic(
     db.commit()
     db.refresh(report)
 
+    # Store structured snapshot + extract time-series metrics
+    try:
+        from app.modules.diagnostics.service import upsert_device, store_snapshot
+        device_id = upsert_device(db, payload.serial, payload.client_id, payload.payload)
+        snapshot_id = store_snapshot(db, device_id, payload.serial, payload.client_id, payload.payload)
+        logger.info(f"Diagnostic snapshot stored: snapshot_id={snapshot_id}")
+    except Exception as e:
+        logger.warning(f"Diagnostic storage service error (non-fatal): {e}")
+
     return {"status": "ok", "id": report.id, "serial": report.serial}
 
 
