@@ -62,6 +62,38 @@ async def on_client_created(payload: dict):
     except Exception as e:
         logger.error(f"client.created email failed for {client_id}: {e}")
 
+    # Send welcome email TO the client
+    client_email = payload.get("email")
+    first_name   = payload.get("first_name", "there")
+    if client_email:
+        welcome_subject = "Welcome to ZA Support — what happens next"
+        welcome_body = "\n".join([
+            f"Hi {first_name},",
+            f"",
+            f"Thank you for registering with ZA Support.",
+            f"",
+            f"Here's what happens next:",
+            f"  1. We'll review your details and contact you to schedule your",
+            f"     Health Check Scout diagnostic (usually within 1-2 business days).",
+            f"  2. We'll run the diagnostic on your Mac — it takes about 10 minutes",
+            f"     and requires no technical knowledge on your part.",
+            f"  3. You'll receive your personalised CyberPulse Assessment report",
+            f"     covering security, performance, and backup status.",
+            f"  4. We'll walk through the report with you and agree on next steps.",
+            f"",
+            f"If you have any questions in the meantime, just reply to this email",
+            f"or call Courtney on 064 529 5863.",
+            f"",
+            f"ZA Support | Practice IT. Perfected.",
+            f"admin@zasupport.com | 064 529 5863 | zasupport.com",
+            f"1 Hyde Park Lane, Hyde Park, Johannesburg, 2196",
+        ])
+        try:
+            send_email(client_email, welcome_subject, welcome_body)
+            logger.info(f"Welcome email sent to {client_email} ({client_id})")
+        except Exception as e:
+            logger.error(f"Welcome email failed for {client_email}: {e}")
+
     try:
         urgency_tag = " 🚨 *URGENT*" if urgent_flag else ""
         biz_tag = " | 💼 Has business" if business_flag else ""

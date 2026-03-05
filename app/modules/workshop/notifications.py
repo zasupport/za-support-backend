@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 @subscribe("diagnostics.upload_received")
 async def on_diagnostic_received(payload: dict):
     """
-    When Scout diagnostic arrives, check for CRITICAL/HIGH severity recommendations.
-    Auto-create a Workshop job card if any are found.
+    When Scout diagnostic arrives:
+    1. Auto-create job card for CRITICAL/HIGH recommendations.
+    2. Auto-create backup failure job if Time Machine or CCC is broken.
     """
     client_id   = payload.get("client_id")
     serial      = payload.get("serial")
@@ -23,23 +24,86 @@ async def on_diagnostic_received(payload: dict):
     if not client_id or not serial:
         return
 
-    # Only proceed if there are recommendations to evaluate
-    if not recs:
-        return
-
     try:
-        from app.modules.workshop.service import auto_create_from_diagnostic
+        from app.modules.workshop.service import auto_create_from_diagnostic, create_job
+        from app.modules.workshop.schemas import JobCreate
         db = get_session_factory()()
         try:
-            job = auto_create_from_diagnostic(
-                db=db,
-                client_id=client_id,
-                serial=serial,
-                snapshot_id=snapshot_id,
-                recommendations=recs,
-            )
-            if job:
-                logger.info(f"Workshop: auto-created job {job.job_ref} for {client_id} / {serial}")
+            # 1. Standard CRITICAL/HIGH job card
+            if recs:
+                job = auto_create_from_diagnostic(
+                    db=db,
+                    client_id=client_id,
+                    serial=serial,
+                    snapshot_id=snapshot_id,
+                    recommendations=recs,
+                )
+                if job:
+                    logger.info(f"Workshop: auto-created job {job.job_ref} for {client_id} / {serial}")
+
+            # 2. Backup failure detection from environment section
+            from sqlalchemy import text
+            snap_row = db.execute(
+                text("SELECT raw_json FROM diagnostic_snapshots WHERE id = :id"),
+                {"id": snapshot_id},
+            ).fetchone() if snapshot_id else None
+
+            if snap_row:
+                import json
+                raw = json.loads(snap_row.raw_json) if isinstance(snap_row.raw_json, str) else (snap_row.raw_json or {})
+                env = raw.get("environment", {})
+
+                backup_issues = []
+
+                # Time Machine check
+                tm = env.get("time_machine", {})
+                tm_status = (tm.get("status") or "").lower()
+                days_since = tm.get("days_since_backup")
+                if tm_status in ("not configured", "error", "failed", "never backed up"):
+                    backup_issues.append(f"Time Machine: {tm_status}")
+                elif days_since is not None:
+                    try:
+                        if int(days_since) > 7:
+                            backup_issues.append(f"Time Machine: {int(days_since)} days since last backup")
+                    except (ValueError, TypeError):
+                        pass
+
+                # CCC check
+                ccc = env.get("ccc_backup", {})
+                ccc_status = (ccc.get("status") or "").lower()
+                if ccc_status in ("not configured", "error", "failed", "never ran"):
+                    backup_issues.append(f"CCC: {ccc_status}")
+
+                if backup_issues:
+                    existing = db.execute(
+                        text("""
+                            SELECT id FROM workshop_jobs
+                            WHERE client_id = :cid AND serial = :serial
+                              AND title ILIKE '%backup%'
+                              AND status NOT IN ('done', 'cancelled')
+                              AND created_at > NOW() - INTERVAL '14 days'
+                        """),
+                        {"cid": client_id, "serial": serial},
+                    ).fetchone()
+
+                    if not existing:
+                        issue_str = "; ".join(backup_issues)
+                        backup_job = create_job(
+                            db=db,
+                            data=JobCreate(
+                                client_id=client_id,
+                                serial=serial,
+                                title=f"Backup failure — {serial}",
+                                description=f"Scout detected backup issues: {issue_str}",
+                                priority="high",
+                                line_items=[],
+                            ),
+                            source="auto",
+                            snapshot_id=snapshot_id,
+                        )
+                        db.commit()
+                        logger.info(f"Workshop: backup failure job {backup_job.job_ref} created for {client_id} — {issue_str}")
+
         finally:
             db.close()
     except Exception as e:

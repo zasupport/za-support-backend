@@ -171,6 +171,26 @@ def get_checkins(client_id: str, db: Session = Depends(get_db)):
     return service.get_checkins(db, client_id)
 
 
+# ── Client Status Update ──────────────────────────────────────────────────────
+
+@router.patch("/{client_id}/status", dependencies=[Depends(verify_agent_token)])
+def update_client_status(client_id: str, body: dict, db: Session = Depends(get_db)):
+    """Update client status: new | active | sla | inactive."""
+    from sqlalchemy import text
+    allowed = {"new", "active", "sla", "inactive"}
+    new_status = (body.get("status") or "").lower().strip()
+    if new_status not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {sorted(allowed)}")
+    client = service.get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+    client.status = new_status
+    db.commit()
+    db.refresh(client)
+    logger.info(f"Client {client_id} status updated to {new_status}")
+    return {"client_id": client_id, "status": new_status}
+
+
 # ── Morning Operations View ───────────────────────────────────────────────────
 
 @router.get("/morning/overview", dependencies=[Depends(verify_agent_token)])

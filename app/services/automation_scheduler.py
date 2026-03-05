@@ -18,6 +18,9 @@ from app.services.weekly_digest import run_weekly_digest
 import app.services.isp_outage_notifier  # noqa: F401 — registers isp.outage_detected subscriber
 import app.services.report_delivery      # noqa: F401 — registers diagnostics.upload_received → auto-deliver PDF
 from app.services.stale_diagnostic_alerter import run_stale_diagnostic_check
+from app.services.previsit_reminder import run_previsit_reminders
+from app.services.sla_report_scheduler import run_sla_monthly_reports
+from app.services.critical_escalation import run_critical_escalation
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,10 @@ JOB_DEFS = [
     ("backup_monitor",   "Backup Health Monitor",          backup_check,       {"trigger": "interval", "hours": 6}),
     ("report_generator", "Device Report Generator",        generate_all_reports, {"trigger": "cron", "hour": 6, "minute": 0}),
     ("weekly_digest",    "Weekly Operations Digest",       run_weekly_digest,  {"trigger": "cron", "day_of_week": "mon", "hour": 7, "minute": 0}),
-    ("stale_diagnostic_check", "Stale Diagnostic Alerter", run_stale_diagnostic_check, {"trigger": "cron", "hour": 8, "minute": 0}),
+    ("stale_diagnostic_check", "Stale Diagnostic Alerter",   run_stale_diagnostic_check, {"trigger": "cron", "hour": 8, "minute": 0}),
+    ("previsit_reminder",      "Pre-Visit Client Reminders", run_previsit_reminders,     {"trigger": "cron", "hour": 7, "minute": 30}),
+    ("sla_monthly_reports",    "SLA Monthly Report Delivery",run_sla_monthly_reports,    {"trigger": "cron", "day": 1, "hour": 6, "minute": 0}),
+    ("critical_escalation",    "Critical Job Escalation",    run_critical_escalation,    {"trigger": "cron", "hour": 9, "minute": 0}),
     ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
     ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
     ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),

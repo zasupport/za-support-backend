@@ -87,6 +87,84 @@ def list_jobs(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/activity")
+def activity_feed(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    """
+    Combined real-time activity feed: recent clients, diagnostics, workshop jobs.
+    Powers the dashboard home activity panel.
+    """
+    from sqlalchemy import text
+
+    # Recent clients
+    clients = db.execute(
+        text("SELECT client_id, first_name, last_name, status, created_at FROM clients ORDER BY created_at DESC LIMIT :n"),
+        {"n": limit // 3 or 5},
+    ).fetchall()
+
+    # Recent diagnostic snapshots
+    snaps = db.execute(
+        text("""
+            SELECT s.id, s.serial, s.client_id, s.scan_date, s.risk_level, s.risk_score,
+                   d.hostname
+            FROM diagnostic_snapshots s
+            LEFT JOIN client_devices d ON d.serial = s.serial
+            ORDER BY s.scan_date DESC LIMIT :n
+        """),
+        {"n": limit // 3 or 5},
+    ).fetchall()
+
+    # Recent workshop jobs
+    jobs = db.execute(
+        text("""
+            SELECT j.job_ref, j.title, j.client_id, j.status, j.priority, j.source,
+                   j.created_at, c.first_name, c.last_name
+            FROM workshop_jobs j
+            LEFT JOIN clients c ON c.client_id = j.client_id
+            ORDER BY j.created_at DESC LIMIT :n
+        """),
+        {"n": limit // 3 or 5},
+    ).fetchall()
+
+    events = []
+
+    for r in clients:
+        events.append({
+            "type": "client_created",
+            "icon": "user",
+            "label": f"New client: {r.first_name} {r.last_name}",
+            "sub": r.status,
+            "href": f"/clients/{r.client_id}",
+            "ts": r.created_at.isoformat() if r.created_at else None,
+        })
+
+    for r in snaps:
+        level = r.risk_level or "—"
+        events.append({
+            "type": "diagnostic",
+            "icon": "scan",
+            "label": f"Diagnostic: {r.hostname or r.serial}",
+            "sub": f"Risk: {level} ({r.risk_score or '—'})",
+            "severity": level.lower(),
+            "href": f"/devices/{r.serial}",
+            "ts": r.scan_date.isoformat() if r.scan_date else None,
+        })
+
+    for r in jobs:
+        events.append({
+            "type": "workshop_job",
+            "icon": "wrench",
+            "label": f"Job: {r.title[:60]}",
+            "sub": f"{r.first_name or ''} {r.last_name or ''} · {r.status} · {r.priority}",
+            "href": f"/workshop",
+            "ts": r.created_at.isoformat() if r.created_at else None,
+        })
+
+    # Sort combined feed by timestamp desc
+    events.sort(key=lambda e: e.get("ts") or "", reverse=True)
+
+    return {"events": events[:limit]}
+
+
 @router.get("/status")
 def automation_status(db: Session = Depends(get_db)):
     """Overall automation layer health."""
