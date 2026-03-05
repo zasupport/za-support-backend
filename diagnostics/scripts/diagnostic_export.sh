@@ -1835,10 +1835,7 @@ echo ""
 # THREAT INTELLIGENCE — CROSS-REFERENCE AGAINST GLOBAL DATABASES
 # ═══════════════════════════════════════════════════════════════
 progress "TI/$TOTAL_SECTIONS — ZA Support Threat Intelligence"
-if [[ -n "${ZA_VT_API_KEY:-}" || -n "${ZA_ABUSEIPDB_KEY:-}" || -n "${ZA_HIBP_API_KEY:-}" ]]; then
-    : # threat_intel skipped — requires full install with API keys
-    run_threat_intel "$JSON_FILE" "$REPORT_FILE"
-fi  # threat intel — run only when API keys are configured
+: # Threat intelligence — requires full local install with API keys configured in settings.conf
 
 # ═══════════════════════════════════════════════════════════════
 # MALWARE & ADWARE SCAN
