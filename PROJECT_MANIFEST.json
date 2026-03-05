@@ -1,8 +1,8 @@
 {
   "name": "za-support-backend",
-  "display_name": "CyberPulse Core v11",
+  "display_name": "Health Check AI v11",
   "version": "11.2.0",
-  "description": "Intelligence processing engine — receives CyberPulse Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the CyberPulse dashboard",
+  "description": "Intelligence processing engine — receives Health Check Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the CyberPulse dashboard",
   "owner": "Courtney Bentley / ZA Support",
   "stack": {
     "framework": "FastAPI",

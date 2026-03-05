@@ -1,5 +1,5 @@
 """
-CyberPulse Core v11.2
+Health Check AI v11.2
 Production deployment - Render.com
 Intelligence processing engine — receives Scout data, applies risk scoring,
 monitors ISPs, runs security modules, and serves the CyberPulse dashboard.
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
-    logger.info("Starting CyberPulse Core v11.2...")
+    logger.info("Starting Health Check AI v11.2...")
     Base.metadata.create_all(bind=get_engine())
     logger.info("Database tables verified.")
     start_isp_scheduler()
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="CyberPulse Core API",
+    title="Health Check AI API",
     version="11.2.0",
     description="Intelligence processing engine for ZA Support — ingests Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the CyberPulse dashboard.",
     lifespan=lifespan,
@@ -82,7 +82,7 @@ app.include_router(agent_delivery_router)
 @app.get("/", tags=["Root"])
 async def root():
     return {
-        "service": "CyberPulse Core API",
+        "service": "Health Check AI API",
         "version": "11.2.0",
         "status": "running",
         "docs": "/docs",
