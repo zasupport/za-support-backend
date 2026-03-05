@@ -11,7 +11,7 @@ Endpoints:
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, text
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 import logging
 
@@ -63,7 +63,7 @@ async def receive_heartbeat(
         serial=payload.serial,
         hostname=payload.hostname,
         client_id=payload.client_id,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         cpu_load=payload.cpu_load,
         memory_pressure=payload.memory_pressure,
         disk_used_pct=payload.disk_used_pct,
@@ -95,7 +95,7 @@ async def upload_diagnostic(
         serial=payload.serial,
         hostname=payload.hostname,
         client_id=payload.client_id,
-        uploaded_at=datetime.utcnow(),
+        uploaded_at=datetime.now(timezone.utc),
         payload=payload.payload,
     )
     db.add(report)
@@ -123,7 +123,7 @@ async def list_agent_devices(
     _: str = Depends(verify_agent_token),
 ):
     """List devices with their latest heartbeat status."""
-    cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_THRESHOLD_SECONDS)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=ONLINE_THRESHOLD_SECONDS)
 
     # Subquery: latest heartbeat per serial
     from sqlalchemy import func
@@ -179,7 +179,7 @@ async def get_agent_device(
     if not record:
         raise HTTPException(status_code=404, detail=f"No heartbeat found for serial {serial}")
 
-    cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_THRESHOLD_SECONDS)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=ONLINE_THRESHOLD_SECONDS)
     return AgentDeviceStatus(
         serial=record.serial,
         hostname=record.hostname,

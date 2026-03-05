@@ -4,7 +4,7 @@ Dashboard aggregation — provides a single-call overview for client dashboards.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.core.database import get_db
@@ -28,7 +28,7 @@ async def dashboard_overview(
         q = q.filter(Device.client_id == client_id)
     devices = q.all()
 
-    stale_threshold = datetime.utcnow() - timedelta(minutes=15)
+    stale_threshold = datetime.now(timezone.utc) - timedelta(minutes=15)
 
     device_summaries = []
     for d in devices:

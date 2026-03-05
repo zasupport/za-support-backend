@@ -115,7 +115,7 @@ class ScanOrchestrator:
 
             # Store in database if available
             if db:
-                await self._store_session(db, session, corroborated_findings)
+                self._store_session(db, session, corroborated_findings)
 
             logger.info(
                 "Scan complete: device=%s, findings=%d, critical=%d, confirmed_malicious=%d",
@@ -218,40 +218,46 @@ class ScanOrchestrator:
             logger.error("Failed to corroborate finding '%s': %s", finding.title, exc)
             return None
 
-    async def _store_session(self, db, session, findings):
+    def _store_session(self, db, session, findings):
         """Store scan session and findings in database."""
-        # Insert scan session
-        await db.execute(
-            """
+        import json
+        from sqlalchemy import text
+
+        db.execute(
+            text("""
             INSERT INTO breach_scanner.scan_sessions
                 (id, client_id, device_id, scope, status, os_platform,
                  started_at, completed_at, duration_seconds,
                  total_items_scanned, findings_count, critical_findings,
                  high_findings, confirmed_malicious, scanners_run, error_message)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            """,
-            session.id,
-            session.client_id,
-            session.device_id,
-            session.scope.value,
-            session.status.value,
-            session.os_platform.value,
-            session.started_at,
-            session.completed_at,
-            session.duration_seconds,
-            session.total_items_scanned,
-            session.findings_count,
-            session.critical_findings,
-            session.high_findings,
-            session.confirmed_malicious,
-            session.scanners_run,
-            session.error_message,
+            VALUES (:id, :cid, :did, :scope, :status, :os,
+                    :started, :completed, :duration,
+                    :total, :fcount, :critical, :high, :confirmed, :scanners, :err)
+            ON CONFLICT (id) DO NOTHING
+            """),
+            {
+                "id": str(session.id),
+                "cid": str(session.client_id),
+                "did": str(session.device_id),
+                "scope": session.scope.value,
+                "status": session.status.value,
+                "os": session.os_platform.value,
+                "started": session.started_at,
+                "completed": session.completed_at,
+                "duration": session.duration_seconds,
+                "total": session.total_items_scanned,
+                "fcount": session.findings_count,
+                "critical": getattr(session, "critical_findings", 0) or 0,
+                "high": getattr(session, "high_findings", 0) or 0,
+                "confirmed": getattr(session, "confirmed_malicious", 0) or 0,
+                "scanners": session.scanners_run,
+                "err": getattr(session, "error_message", None),
+            },
         )
 
-        # Insert findings
         for finding in findings:
-            await db.execute(
-                """
+            db.execute(
+                text("""
                 INSERT INTO breach_scanner.scan_findings
                     (id, scan_id, category, severity, title, description,
                      file_path, file_hash_sha256, process_name,
@@ -260,31 +266,38 @@ class ScanOrchestrator:
                      mitre_technique, mitre_tactic,
                      corroboration_status, corroboration_confidence,
                      corroboration_details, recommended_action, found_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-                """,
-                finding.id,
-                finding.scan_id,
-                finding.category.value,
-                finding.severity.value,
-                finding.title,
-                finding.description,
-                finding.file_path,
-                finding.file_hash_sha256,
-                finding.process_name,
-                finding.network_ip,
-                finding.network_domain,
-                finding.email_subject,
-                finding.attachment_name,
-                finding.app_name,
-                finding.extension_id,
-                finding.mitre_technique,
-                finding.mitre_tactic,
-                finding.corroboration_status.value,
-                finding.corroboration_confidence,
-                [r.model_dump() for r in finding.corroboration_details],
-                finding.recommended_action,
-                finding.found_at,
+                VALUES (:id,:sid,:cat,:sev,:title,:desc,:fp,:hash,:proc,
+                        :ip,:domain,:esub,:att,:app,:ext,
+                        :mitre_t,:mitre_ta,:cstatus,:cconf,:cdet,:action,:found)
+                ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": str(finding.id),
+                    "sid": str(finding.scan_id),
+                    "cat": finding.category.value,
+                    "sev": finding.severity.value,
+                    "title": finding.title,
+                    "desc": finding.description,
+                    "fp": finding.file_path,
+                    "hash": finding.file_hash_sha256,
+                    "proc": finding.process_name,
+                    "ip": finding.network_ip,
+                    "domain": finding.network_domain,
+                    "esub": finding.email_subject,
+                    "att": finding.attachment_name,
+                    "app": finding.app_name,
+                    "ext": finding.extension_id,
+                    "mitre_t": finding.mitre_technique,
+                    "mitre_ta": finding.mitre_tactic,
+                    "cstatus": finding.corroboration_status.value,
+                    "cconf": finding.corroboration_confidence,
+                    "cdet": json.dumps([r.model_dump() for r in finding.corroboration_details]),
+                    "action": finding.recommended_action,
+                    "found": finding.found_at,
+                },
             )
+
+        db.commit()
 
     def get_active_scans(self) -> list[ScanSessionResponse]:
         return list(self._active_scans.values())

@@ -11,7 +11,7 @@ import os
 import platform
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class QuickTriageCollector:
     def collect(self, output_dir: str) -> dict:
         os.makedirs(output_dir, exist_ok=True)
         manifest = {
-            "collection_start": datetime.utcnow().isoformat(),
+            "collection_start": datetime.now(timezone.utc).isoformat(),
             "collection_type":  "quick_triage",
             "os_platform":      platform.system(),
             "hostname":         platform.node(),
@@ -82,7 +82,7 @@ class QuickTriageCollector:
             if stdout.strip():
                 with open(out_file, "w") as f:
                     f.write(f"# {step_name}\n")
-                    f.write(f"# Collected: {datetime.utcnow().isoformat()} UTC\n")
+                    f.write(f"# Collected: {datetime.now(timezone.utc).isoformat()} UTC\n")
                     f.write(f"# Command: {' '.join(str(x) for x in cmd)}\n\n")
                     f.write(stdout)
                 sha = _sha256(out_file)
@@ -91,13 +91,13 @@ class QuickTriageCollector:
                     "filename":  os.path.basename(out_file),
                     "sha256":    sha,
                     "size":      os.path.getsize(out_file),
-                    "collected": datetime.utcnow().isoformat(),
+                    "collected": datetime.now(timezone.utc).isoformat(),
                 })
             elif code != 0:
                 manifest["errors"].append(f"{step_name}: {stderr[:200]}")
 
         manifest_file = os.path.join(output_dir, "triage_manifest.json")
-        manifest["collection_end"] = datetime.utcnow().isoformat()
+        manifest["collection_end"] = datetime.now(timezone.utc).isoformat()
         with open(manifest_file, "w") as f:
             json.dump(manifest, f, indent=2)
 

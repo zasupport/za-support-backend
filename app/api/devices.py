@@ -4,7 +4,7 @@ Device registration and health telemetry submission.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from app.core.database import get_db
@@ -37,7 +37,7 @@ async def register_device(
             val = getattr(payload, field, None)
             if val is not None:
                 setattr(device, field, val)
-        device.last_seen = datetime.utcnow()
+        device.last_seen = datetime.now(timezone.utc)
         device.is_active = True
     else:
         device = Device(
@@ -77,7 +77,7 @@ async def submit_health(
         db.add(device)
         db.flush()
 
-    device.last_seen = datetime.utcnow()
+    device.last_seen = datetime.now(timezone.utc)
 
     # Encrypt raw data
     encrypted = None
@@ -101,7 +101,7 @@ async def submit_health(
         network_down_mbps=payload.network_down_mbps,
         encrypted_raw=encrypted,
         raw_data=payload.raw_data,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
     )
     db.add(record)
 
@@ -146,7 +146,7 @@ async def device_history(
     _: str = Depends(verify_api_key),
 ):
     """Get health telemetry history for a device."""
-    since = datetime.utcnow() - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
     records = (
         db.query(HealthData)
         .filter(HealthData.machine_id == machine_id, HealthData.timestamp >= since)

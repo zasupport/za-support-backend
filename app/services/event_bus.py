@@ -3,7 +3,7 @@ Event bus — central event publication for the automation layer.
 Every monitor, scheduler, and notification action emits an event.
 """
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import logging
 
@@ -39,7 +39,7 @@ def publish(
         detail=detail,
         device_serial=device_serial,
         client_id=client_id,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(event)
     db.flush()

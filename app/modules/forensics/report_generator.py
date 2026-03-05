@@ -8,7 +8,7 @@ PDF generation via reportlab if available.
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class ForensicsReportGenerator:
         Returns paths to generated files.
         """
         os.makedirs(output_dir, exist_ok=True)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
         findings  = investigation.get("findings", [])
         tasks     = investigation.get("tasks", [])
@@ -56,7 +56,7 @@ class ForensicsReportGenerator:
         # ── JSON Report ───────────────────────────────────────────────────────
         json_report = {
             "report_metadata": {
-                "generated_at":       datetime.utcnow().isoformat(),
+                "generated_at":       datetime.now(timezone.utc).isoformat(),
                 "generated_by":       "ZA Support Health Check AI — Forensics Module",
                 "investigation_id":   investigation.get("id"),
                 "client_id":          client_id,
@@ -263,7 +263,7 @@ class ForensicsReportGenerator:
             "  POPIA (Protection of Personal Information Act, No. 4 of 2013).",
             "  Unauthorised disclosure is a POPIA violation.",
             "",
-            f"  Generated: {datetime.utcnow().isoformat()} UTC",
+            f"  Generated: {datetime.now(timezone.utc).isoformat()} UTC",
             f"  By: ZA Support Health Check AI — Forensics Module",
             "  ZA Support | admin@zasupport.com | 064 529 5863",
             "  1 Hyde Park Lane, Hyde Park, Johannesburg, 2196",
@@ -467,7 +467,7 @@ class ForensicsReportGenerator:
             canvas.drawCentredString(PAGE_W/2, PAGE_H*0.36 - 16,
                                      f"Investigation: {inv.get('id', '')[:20]}...")
             canvas.drawCentredString(PAGE_W/2, PAGE_H*0.36 - 32,
-                                     f"Prepared by ZA Support  |  {datetime.utcnow().strftime('%B %Y')}")
+                                     f"Prepared by ZA Support  |  {datetime.now(timezone.utc).strftime('%B %Y')}")
             # Footer bar
             canvas.setFillColor(HexColor("#1E3E3B"))
             canvas.rect(0, 0, PAGE_W, 18*mm, fill=1, stroke=0)
@@ -648,7 +648,7 @@ class ForensicsReportGenerator:
             "professional before any conclusions or actions are taken. "
             "This report is CONFIDENTIAL and subject to POPIA (No. 4 of 2013). "
             "Unauthorised disclosure is a POPIA violation. "
-            f"Generated: {datetime.utcnow().isoformat()} UTC by ZA Support Health Check AI.</i>"
+            f"Generated: {datetime.now(timezone.utc).isoformat()} UTC by ZA Support Health Check AI.</i>"
         )
         story.append(Paragraph(disc_text, disc))
 

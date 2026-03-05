@@ -8,7 +8,7 @@ Layer 4: Agent connectivity evaluation (devices.last_seen)
 """
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -293,7 +293,7 @@ def evaluate_agent_heartbeats(db: Session):
     Requires 2+ agents on same ISP offline before flagging ISP-level issue.
     """
     timeout = settings.ISP_MONITOR_AGENT_HEARTBEAT_TIMEOUT
-    cutoff = datetime.utcnow() - timedelta(seconds=timeout)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeout)
 
     # Get all providers with agent connectivity records
     providers = db.query(ISPProvider).filter(ISPProvider.is_active == True).all()
@@ -304,7 +304,7 @@ def evaluate_agent_heartbeats(db: Session):
             db.query(AgentConnectivity)
             .filter(
                 AgentConnectivity.provider_id == provider.id,
-                AgentConnectivity.timestamp >= datetime.utcnow() - timedelta(hours=1),
+                AgentConnectivity.timestamp >= datetime.now(timezone.utc) - timedelta(hours=1),
             )
             .all()
         )
@@ -500,7 +500,7 @@ def manage_outage_lifecycle(
                 _create_outage_alert(provider, status, db)
     elif status == ISPStatus.OPERATIONAL.value and active_outage:
         # Auto-resolve
-        active_outage.ended_at = datetime.utcnow()
+        active_outage.ended_at = datetime.now(timezone.utc)
         active_outage.auto_resolved = True
         db.commit()
         logger.info(f"Auto-resolved outage for {provider.name}")

@@ -7,7 +7,7 @@ GET /api/v1/system/status  — automation layer health
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from app.core.database import get_db
@@ -35,7 +35,7 @@ def list_events(
     if severity:
         q = q.filter(SystemEvent.severity == severity)
     if since_hours:
-        since = datetime.utcnow() - timedelta(hours=since_hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
         q = q.filter(SystemEvent.created_at >= since)
 
     total = q.count()
@@ -98,7 +98,7 @@ def automation_status(db: Session = Depends(get_db)):
     notifications_sent = db.query(func.count(NotificationLog.id)).scalar() or 0
 
     # Events in last 24h by severity
-    since_24h = datetime.utcnow() - timedelta(hours=24)
+    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
     severity_counts = db.query(
         SystemEvent.severity, func.count(SystemEvent.id)
     ).filter(

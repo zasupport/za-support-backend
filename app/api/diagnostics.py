@@ -12,7 +12,7 @@ for deep analysis.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 import logging
 
@@ -136,8 +136,8 @@ async def upload_diagnostic(
         runtime_seconds=payload.runtime_seconds,
 
         # Timestamps
-        captured_at=datetime.utcnow(),
-        uploaded_at=datetime.utcnow(),
+        captured_at=datetime.now(timezone.utc),
+        uploaded_at=datetime.now(timezone.utc),
     )
 
     db.add(record)

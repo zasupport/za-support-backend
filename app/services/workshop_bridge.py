@@ -3,7 +3,7 @@ Workshop bridge — links Health Check monitoring data with Workshop PKG diagnos
 Provides correlation between continuous monitoring and point-in-time diagnostic snapshots.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ def on_diagnostic_upload(db: Session, diagnostic_id: int):
         return
 
     serial = diag.serial_number
-    captured = diag.captured_at or datetime.utcnow()
+    captured = diag.captured_at or datetime.now(timezone.utc)
 
     # Find matching device in HC
     device = db.query(Device).filter(
@@ -72,7 +72,7 @@ def on_diagnostic_upload(db: Session, diagnostic_id: int):
 
 def get_device_timeline(db: Session, serial: str, days: int = 30) -> dict:
     """Build a combined timeline of HC monitoring + diagnostics for a device."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     diagnostics = db.query(WorkshopDiagnostic).filter(
         WorkshopDiagnostic.serial_number == serial,

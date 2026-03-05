@@ -3,7 +3,7 @@ Patch monitor — checks device OS versions against latest known macOS releases.
 Generates events when devices are behind on patches.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -66,7 +66,7 @@ def check_all_devices(db: Session):
         ps.current_os = device.os_version
         ps.latest_os = latest
         ps.days_behind = days_behind
-        ps.last_checked = datetime.utcnow()
+        ps.last_checked = datetime.now(timezone.utc)
 
         if not is_current and days_behind > 14:
             severity = "critical" if days_behind > 60 else "high"

@@ -2,7 +2,7 @@
 ISP Outage Monitor API — 15 endpoints under /api/v1/isp/
 All endpoints require API key authentication.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -124,7 +124,7 @@ def get_check_history(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     query = (
         db.query(ISPStatusCheck)
         .filter(
@@ -147,7 +147,7 @@ def list_outages(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     query = db.query(ISPOutage).filter(ISPOutage.started_at >= cutoff)
     if provider_id:
         query = query.filter(ISPOutage.provider_id == provider_id)
@@ -203,7 +203,7 @@ def resolve_outage(
         raise HTTPException(status_code=404, detail="Outage not found")
     if outage.ended_at:
         raise HTTPException(status_code=409, detail="Outage already resolved")
-    outage.ended_at = datetime.utcnow()
+    outage.ended_at = datetime.now(timezone.utc)
     outage.auto_resolved = False
     # Reset provider status
     provider = db.query(ISPProvider).filter(ISPProvider.id == outage.provider_id).first()
@@ -238,7 +238,7 @@ def get_connectivity_history(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key),
 ):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     return (
         db.query(AgentConnectivity)
         .filter(

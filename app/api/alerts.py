@@ -4,7 +4,7 @@ Alert management — list, resolve, bulk operations.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 from app.core.database import get_db
@@ -46,7 +46,7 @@ async def resolve_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found.")
     alert.resolved = True
-    alert.resolved_at = datetime.utcnow()
+    alert.resolved_at = datetime.now(timezone.utc)
     db.commit()
     return {"status": "resolved", "id": alert_id}
 
@@ -61,7 +61,7 @@ async def resolve_all(
     count = (
         db.query(Alert)
         .filter(Alert.machine_id == machine_id, Alert.resolved == False)
-        .update({"resolved": True, "resolved_at": datetime.utcnow()})
+        .update({"resolved": True, "resolved_at": datetime.now(timezone.utc)})
     )
     db.commit()
     return {"status": "resolved", "count": count}

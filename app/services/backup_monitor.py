@@ -3,7 +3,7 @@ Backup monitor — checks Time Machine and third-party backup status from diagno
 Alerts when no backup is configured or backups are stale.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -45,7 +45,7 @@ def check_all_devices(db: Session):
             bs = BackupStatus(device_serial=serial, client_id=device.client_id)
             db.add(bs)
 
-        bs.last_checked = datetime.utcnow()
+        bs.last_checked = datetime.now(timezone.utc)
         bs.client_id = device.client_id
 
         if diag and diag.raw_json:
@@ -88,7 +88,7 @@ def _update_from_diagnostic(bs: BackupStatus, raw: dict):
             try:
                 last_dt = datetime.fromisoformat(last_backup_str.replace("Z", "+00:00"))
                 bs.last_tm_backup = last_dt
-                bs.tm_days_stale = (datetime.utcnow() - last_dt.replace(tzinfo=None)).days
+                bs.tm_days_stale = (datetime.now(timezone.utc) - last_dt.replace(tzinfo=None)).days
             except (ValueError, TypeError):
                 pass
 

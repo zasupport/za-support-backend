@@ -5,7 +5,7 @@ Generates JSON reports (PDF rendering deferred to frontend/reportlab layer).
 import os
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -25,7 +25,7 @@ def generate_device_report(db: Session, serial: str, days: int = 30) -> dict:
     if not device:
         return {"error": f"Device {serial} not found"}
 
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Health data aggregation
     health_agg = db.query(
@@ -59,7 +59,7 @@ def generate_device_report(db: Session, serial: str, days: int = 30) -> dict:
     ).first()
 
     report = {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "period_days": days,
         "device": {
             "serial": serial,
@@ -103,7 +103,7 @@ def generate_all_reports(db: Session):
             report = generate_device_report(db, serial)
             # Save to disk if output dir exists
             if os.path.isdir(REPORT_OUTPUT_DIR):
-                filename = f"hc_report_{serial}_{datetime.utcnow().strftime('%Y%m%d')}.json"
+                filename = f"hc_report_{serial}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
                 filepath = os.path.join(REPORT_OUTPUT_DIR, filename)
                 with open(filepath, "w") as f:
                     json.dump(report, f, indent=2)

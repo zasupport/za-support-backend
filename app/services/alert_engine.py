@@ -2,7 +2,7 @@
 Alert engine — evaluates health data against thresholds, generates alerts.
 """
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 import logging
 
@@ -72,5 +72,5 @@ def _make_alert(machine_id: str, severity: AlertSeverity, category: str, message
         severity=severity.value,
         category=category,
         message=message,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
     )

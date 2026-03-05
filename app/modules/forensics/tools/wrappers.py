@@ -13,7 +13,7 @@ import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -778,13 +778,13 @@ class IntegrityHasher(BaseTool):
                 "file":   fpath,
                 "sha256": sha,
                 "size":   size,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
         manifest_file = os.path.join(output_dir, "hash_manifest.txt")
         with open(manifest_file, "w") as f:
             f.write(f"# ZA Support Forensics — Evidence Integrity Manifest\n")
-            f.write(f"# Generated: {datetime.utcnow().isoformat()} UTC\n\n")
+            f.write(f"# Generated: {datetime.now(timezone.utc).isoformat()} UTC\n\n")
             for entry in hash_manifest:
                 f.write(f"{entry['sha256']}  {entry['file']}  "
                         f"({entry['size']} bytes)  {entry['timestamp']}\n")

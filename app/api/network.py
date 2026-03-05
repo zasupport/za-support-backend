@@ -4,7 +4,7 @@ Network telemetry submission and retrieval.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_db
 from app.core.auth import verify_api_key
@@ -28,7 +28,7 @@ async def submit_network(
         wan_status=payload.wan_status,
         wan_latency_ms=payload.wan_latency_ms,
         raw_data=payload.raw_data,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
     )
     db.add(record)
     db.commit()
@@ -44,7 +44,7 @@ async def network_history(
     _: str = Depends(verify_api_key),
 ):
     """Get network telemetry history for a controller."""
-    since = datetime.utcnow() - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
     records = (
         db.query(NetworkData)
         .filter(NetworkData.controller_id == controller_id, NetworkData.timestamp >= since)

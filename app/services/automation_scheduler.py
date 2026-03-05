@@ -3,7 +3,7 @@ Automation scheduler — manages all scheduled jobs for the automation layer.
 Registers jobs in the database for visibility via /api/v1/system/jobs.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
@@ -37,7 +37,7 @@ def _run_job(job_id: str, func):
     try:
         job = db.query(ScheduledJob).filter(ScheduledJob.job_id == job_id).first()
         if job:
-            job.last_run = datetime.utcnow()
+            job.last_run = datetime.now(timezone.utc)
             job.run_count = (job.run_count or 0) + 1
 
         if func:
@@ -77,7 +77,7 @@ def _run_job(job_id: str, func):
 def _stale_device_check(db: Session):
     """Flag devices not seen in 24 hours."""
     from app.models.models import Device
-    threshold = datetime.utcnow() - __import__("datetime").timedelta(hours=24)
+    threshold = datetime.now(timezone.utc) - __import__("datetime").timedelta(hours=24)
     stale = db.query(Device).filter(
         Device.is_active == True,
         Device.last_seen < threshold,
@@ -131,7 +131,7 @@ def _security_posture_scan(db: Session):
 def _event_cleanup(db: Session):
     """Remove system events older than 90 days."""
     from app.models.models import SystemEvent
-    cutoff = datetime.utcnow() - __import__("datetime").timedelta(days=90)
+    cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(days=90)
     deleted = db.query(SystemEvent).filter(SystemEvent.created_at < cutoff).delete()
     logger.info(f"[EventCleanup] Removed {deleted} events older than 90 days.")
 
@@ -145,7 +145,7 @@ def _heartbeat_rollup(db: Session):
     from app.models.models import AgentHeartbeatRecord
     from sqlalchemy import text
 
-    cutoff = datetime.utcnow() - __import__("datetime").timedelta(hours=48)
+    cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(hours=48)
 
     # Find serials with old data
     serials = db.execute(
@@ -269,7 +269,7 @@ def _seed_initial_events(db: Session):
     if existing >= 30:
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     seed_events = [
         ("system.startup", "system", "info", "Health Check AI v11.2 automation layer started"),
         ("scheduler.registered", "scheduler", "info", "Patch monitor registered (every 6h)"),
