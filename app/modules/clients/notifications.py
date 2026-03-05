@@ -1,9 +1,10 @@
 """
-Client event subscribers — fires on client.created via event bus.
+Client event subscribers — fires on client.created and diagnostics.upload_received.
 Imported by __init__.py so subscriptions register at startup.
 """
 import logging
 from app.core.event_bus import subscribe
+from app.core.database import get_session_factory
 from app.services.notification_engine import send_email, send_slack
 
 logger = logging.getLogger(__name__)
@@ -72,3 +73,30 @@ async def on_client_created(payload: dict):
         send_slack(slack_msg)
     except Exception as e:
         logger.error(f"client.created Slack notification failed: {e}")
+
+
+@subscribe("diagnostics.upload_received")
+async def on_diagnostic_received(payload: dict):
+    """
+    When a Scout diagnostic arrives for a client still marked 'new',
+    auto-progress status → 'active'. Scout has run, engagement is confirmed.
+    """
+    from app.modules.clients.models import Client
+    client_id = payload.get("client_id")
+    if not client_id:
+        return
+    try:
+        db = get_session_factory()()
+        try:
+            client = db.query(Client).filter(
+                Client.client_id == client_id,
+                Client.status == "new",
+            ).first()
+            if client:
+                client.status = "active"
+                db.commit()
+                logger.info(f"Client {client_id}: new → active (Scout diagnostic received)")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Status auto-progression failed for {client_id}: {e}")

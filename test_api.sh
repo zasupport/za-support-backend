@@ -243,6 +243,81 @@ RESP=$(curl -s "$BASE_URL/api/v1/isp/dashboard" \
   -H "X-API-Key: ${API_KEY}")
 echo "$RESP" | grep -q '"total_providers"' && green "GET /isp/dashboard" || red "GET /isp/dashboard → ${RESP}"
 
+# ============================================================
+# Clients Module Tests (25-32)
+# ============================================================
+
+header "25. Direct Client Intake"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/clients/intake" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "Test",
+    "last_name": "Client",
+    "email": "testclient@example.com",
+    "phone": "082 000 0001",
+    "preferred_contact": "email",
+    "address": "1 Test Street, Sandton",
+    "urgency_level": "not_urgent",
+    "concerns": ["slow_performance","backup"],
+    "concerns_detail": "Laptop running slow for 2 months",
+    "referral_source": "word_of_mouth",
+    "popia_consent": true
+  }')
+echo "$RESP" | grep -q '"client_id"' && green "POST /clients/intake" || red "POST /clients/intake → ${RESP}"
+TEST_CLIENT_ID=$(echo "$RESP" | grep -o '"client_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+[ -z "$TEST_CLIENT_ID" ] && TEST_CLIENT_ID="test-client"
+
+header "26. List Clients"
+RESP=$(curl -s "$BASE_URL/api/v1/clients/?page=1&per_page=10" \
+  -H "Authorization: Bearer ${API_KEY}")
+echo "$RESP" | grep -q '"data"' && green "GET /clients/" || red "GET /clients/ → ${RESP}"
+
+header "27. Get Client by ID"
+RESP=$(curl -s "$BASE_URL/api/v1/clients/${TEST_CLIENT_ID}" \
+  -H "Authorization: Bearer ${API_KEY}")
+echo "$RESP" | grep -q '"client_id"' && green "GET /clients/{client_id}" || red "GET /clients/{client_id} → ${RESP}"
+
+header "28. Get Client Tasks"
+RESP=$(curl -s "$BASE_URL/api/v1/clients/${TEST_CLIENT_ID}/tasks" \
+  -H "Authorization: Bearer ${API_KEY}")
+echo "$RESP" | grep -q '\[' && green "GET /clients/{client_id}/tasks" || red "GET /clients/{client_id}/tasks → ${RESP}"
+
+# Extract first task ID
+TASK_ID=$(echo "$RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
+[ -z "$TASK_ID" ] && TASK_ID=1
+
+header "29. Update Task Status"
+RESP=$(curl -s -X PATCH "$BASE_URL/api/v1/clients/${TEST_CLIENT_ID}/tasks/${TASK_ID}" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -d '{"status":"in_progress"}')
+echo "$RESP" | grep -q '"status"' && green "PATCH /clients/{client_id}/tasks/{task_id}" || red "PATCH /clients/{client_id}/tasks/{task_id} → ${RESP}"
+
+header "30. Create Check-In"
+RESP=$(curl -s -X POST "$BASE_URL/api/v1/clients/${TEST_CLIENT_ID}/checkins" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -d '{
+    "focus_today": "Backup setup and startup cleanup",
+    "issues_noted": "Slow startup, mail not loading",
+    "changes_since_last": "Installed new app",
+    "backup_drive_connected": "Yes — G-Drive attached",
+    "pre_visit_notes": "Client will be home 09:00–13:00"
+  }')
+echo "$RESP" | grep -q '"id"' && green "POST /clients/{client_id}/checkins" || red "POST /clients/{client_id}/checkins → ${RESP}"
+
+header "31. Get Check-In History"
+RESP=$(curl -s "$BASE_URL/api/v1/clients/${TEST_CLIENT_ID}/checkins" \
+  -H "Authorization: Bearer ${API_KEY}")
+echo "$RESP" | grep -q '\[' && green "GET /clients/{client_id}/checkins" || red "GET /clients/{client_id}/checkins → ${RESP}"
+
+header "32. Webhook — Invalid Signature Rejected"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/v1/clients/webhook/intake" \
+  -H "Content-Type: application/json" \
+  -H "x-formbricks-signature-256: sha256=invalidsignature" \
+  -d '{"data":{"fields":{}}}')
+[ "$CODE" = "401" ] || [ "$CODE" = "403" ] && green "Webhook signature rejection → ${CODE}" || red "Webhook signature rejection → ${CODE} (expected 401/403)"
+
 # ---- Summary ----
 echo ""
 echo "============================================"
