@@ -10,8 +10,10 @@ GET /agent/za_shield_agent.sh         — Shield Agent script (for self-updates)
 GET /agent/v3/bin/<file>              — V3 diagnostic bin scripts
 GET /agent/v3/modules/<file>          — V3 diagnostic modules
 GET /agent/v3/core/<file>             — V3 diagnostic core
+GET /agent/update.sh                  — Auto-updater script (self-updating)
 GET /api/v1/agent/version             — Current Shield Agent hash (update check)
 GET /api/v1/agent/v3-version          — Combined hash of all V3 scripts (update check)
+GET /api/v1/agent/updater-version     — Hash of update.sh itself (self-update check)
 """
 
 from __future__ import annotations
@@ -64,6 +66,13 @@ def _v3_hash() -> str:
     return h.hexdigest()
 
 
+UPDATER_SCRIPT = AGENT_DIR / "update.sh"
+
+
+def _updater_hash() -> str:
+    return hashlib.sha256(UPDATER_SCRIPT.read_bytes()).hexdigest()
+
+
 def _valid_token() -> str:
     return os.getenv("AGENT_AUTH_TOKEN", "")
 
@@ -75,6 +84,11 @@ def _serve_script(path: Path) -> PlainTextResponse:
 
 
 # ── Script serving endpoints ──────────────────────────────────────────────────
+
+@router.get("/agent/update.sh", response_class=PlainTextResponse)
+async def get_updater():
+    return _serve_script(UPDATER_SCRIPT)
+
 
 @router.get("/agent/za_shield_agent.sh", response_class=PlainTextResponse)
 async def get_shield_agent():
@@ -105,6 +119,12 @@ async def get_agent_version():
 @router.get("/api/v1/agent/v3-version")
 async def get_v3_version():
     h = _v3_hash()
+    return {"hash": h, "version": h[:12]}
+
+
+@router.get("/api/v1/agent/updater-version")
+async def get_updater_version():
+    h = _updater_hash()
     return {"hash": h, "version": h[:12]}
 
 
@@ -187,65 +207,10 @@ async def get_installer(
         "chmod -R 755 $INSTALL_DIR/bin $INSTALL_DIR/modules $INSTALL_DIR/core",
         'echo "[OK] CyberPulse V3 scripts"',
         "",
-        "# ── Self-update script (hourly — updates shield agent + V3 scripts when new version deployed) ──",
-        "cat > $INSTALL_DIR/update.sh << 'UPDATEEOF'",
-        "#!/bin/bash",
-        "INSTALL_DIR=/usr/local/za-support-diagnostics",
-        "LOG=/var/log/zasupport-update.log",
-        "source \"$INSTALL_DIR/config/settings.conf\" 2>/dev/null || exit 0",
-        "",
-        "# ── Shield Agent update ──",
-        "REMOTE_SHIELD=$(curl -sf --max-time 10 \"$ZA_API_URL/api/v1/agent/version\" 2>/dev/null | python3 -c \"import sys,json; print(json.load(sys.stdin).get('hash',''))\" 2>/dev/null)",
-        "LOCAL_SHIELD=$(shasum -a 256 \"$INSTALL_DIR/agent/za_shield_agent.sh\" 2>/dev/null | awk '{print $1}')",
-        "if [[ -n \"$REMOTE_SHIELD\" && \"$REMOTE_SHIELD\" != \"$LOCAL_SHIELD\" ]]; then",
-        "  echo \"$(date) [UPDATE] Shield Agent: new version detected\" >> \"$LOG\"",
-        "  curl -fsSL --max-time 30 \"$ZA_API_URL/agent/za_shield_agent.sh\" \\",
-        "    -o \"$INSTALL_DIR/agent/za_shield_agent.sh.tmp\" && \\",
-        "  chmod 755 \"$INSTALL_DIR/agent/za_shield_agent.sh.tmp\" && \\",
-        "  mv \"$INSTALL_DIR/agent/za_shield_agent.sh.tmp\" \"$INSTALL_DIR/agent/za_shield_agent.sh\"",
-        "  launchctl kickstart -k system/com.zasupport.shield 2>/dev/null",
-        "  echo \"$(date) [UPDATE] Shield Agent updated\" >> \"$LOG\"",
-        "fi",
-        "",
-        "# ── V3 diagnostic scripts update ──",
-        "REMOTE_V3=$(curl -sf --max-time 10 \"$ZA_API_URL/api/v1/agent/v3-version\" 2>/dev/null | python3 -c \"import sys,json; print(json.load(sys.stdin).get('hash',''))\" 2>/dev/null)",
-        "LOCAL_V3_HASH_FILE=\"$INSTALL_DIR/.v3_hash\"",
-        "LOCAL_V3=$(cat \"$LOCAL_V3_HASH_FILE\" 2>/dev/null || echo '')",
-        "if [[ -n \"$REMOTE_V3\" && \"$REMOTE_V3\" != \"$LOCAL_V3\" ]]; then",
-        "  echo \"$(date) [UPDATE] V3 scripts: new version detected — downloading\" >> \"$LOG\"",
-        "  FAILED=0",
-        f'  for remote_local in "{API_URL}/agent/v3/core/za_diag_v3.sh:core/za_diag_v3.sh" \\',
-        f'    "{API_URL}/agent/v3/bin/za_diag_full.sh:bin/za_diag_full.sh" \\',
-        f'    "{API_URL}/agent/v3/bin/za_diag_scheduled.sh:bin/za_diag_scheduled.sh" \\',
-        f'    "{API_URL}/agent/v3/bin/run_diagnostic.sh:bin/run_diagnostic.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/battery_mod.sh:modules/battery_mod.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/forensic_mod.sh:modules/forensic_mod.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/hardware_mod.sh:modules/hardware_mod.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/malware_scan.sh:modules/malware_scan.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/network_mod.sh:modules/network_mod.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/render_sync.sh:modules/render_sync.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/report_gen.sh:modules/report_gen.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/security_mod.sh:modules/security_mod.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/storage_mod.sh:modules/storage_mod.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/threat_intel.sh:modules/threat_intel.sh" \\',
-        f'    "{API_URL}/agent/v3/modules/verification_agent.sh:modules/verification_agent.sh"',
-        "  do",
-        "    URL=\"${remote_local%%:*}\"",
-        "    DEST=\"$INSTALL_DIR/${remote_local##*:}\"",
-        "    TMP=\"${DEST}.tmp\"",
-        "    curl -fsSL --max-time 30 \"$URL\" -o \"$TMP\" 2>/dev/null && mv \"$TMP\" \"$DEST\" || { FAILED=$((FAILED+1)); rm -f \"$TMP\"; }",
-        "  done",
-        "  chmod -R 755 \"$INSTALL_DIR/bin\" \"$INSTALL_DIR/modules\" \"$INSTALL_DIR/core\" 2>/dev/null",
-        "  if [[ $FAILED -eq 0 ]]; then",
-        "    echo \"$REMOTE_V3\" > \"$LOCAL_V3_HASH_FILE\"",
-        "    echo \"$(date) [UPDATE] V3 scripts updated successfully\" >> \"$LOG\"",
-        "  else",
-        "    echo \"$(date) [UPDATE] V3 update partial — $FAILED file(s) failed, will retry\" >> \"$LOG\"",
-        "  fi",
-        "fi",
-        "UPDATEEOF",
-        "chmod 755 $INSTALL_DIR/update.sh",
-        'echo "[OK] auto-update script (Shield Agent + V3 scripts)"',
+        "# ── Download auto-updater (self-updating — Shield Agent + V3 scripts) ──",
+        f'curl -fsSL "{API_URL}/agent/update.sh" -o "$INSTALL_DIR/update.sh"',
+        'chmod 755 "$INSTALL_DIR/update.sh"',
+        'echo "[OK] auto-updater"',
         "",
         "# ── Shield Agent LaunchDaemon (real-time monitoring, KeepAlive) ──",
         "cat > /Library/LaunchDaemons/com.zasupport.shield.plist << 'PLISTEOF'",
