@@ -1,7 +1,8 @@
 """
-ZA Support Health Check Backend v11.2
+CyberPulse Core v11.2
 Production deployment - Render.com
-Includes: diagnostic upload, ISP monitor, automation layer (event bus, scheduler, monitors)
+Intelligence processing engine — receives Scout data, applies risk scoring,
+monitors ISPs, runs security modules, and serves the CyberPulse dashboard.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
-    logger.info("Starting ZA Support Backend v11.2...")
+    logger.info("Starting CyberPulse Core v11.2...")
     Base.metadata.create_all(bind=get_engine())
     logger.info("Database tables verified.")
     start_isp_scheduler()
@@ -42,9 +43,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="ZA Support Health Check API",
+    title="CyberPulse Core API",
     version="11.2.0",
-    description="Device health monitoring, diagnostic ingestion, automation layer, and predictive alerting for ZA Support clients.",
+    description="Intelligence processing engine for ZA Support — ingests Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the CyberPulse dashboard.",
     lifespan=lifespan,
 )
 
@@ -81,7 +82,7 @@ app.include_router(agent_delivery_router)
 @app.get("/", tags=["Root"])
 async def root():
     return {
-        "service": "ZA Support Health Check API",
+        "service": "CyberPulse Core API",
         "version": "11.2.0",
         "status": "running",
         "docs": "/docs",

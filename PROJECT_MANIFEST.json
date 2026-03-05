@@ -1,8 +1,8 @@
 {
   "name": "za-support-backend",
-  "display_name": "ZA Support Health Check v11",
+  "display_name": "CyberPulse Core v11",
   "version": "11.2.0",
-  "description": "Device monitoring backend — receives CyberPulse diagnostic data, ISP outage detection, security events, app intelligence, interaction analytics",
+  "description": "Intelligence processing engine — receives CyberPulse Scout data, applies risk scoring, monitors ISPs, runs security modules, and serves the CyberPulse dashboard",
   "owner": "Courtney Bentley / ZA Support",
   "stack": {
     "framework": "FastAPI",
