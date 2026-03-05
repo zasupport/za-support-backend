@@ -1,9 +1,10 @@
 import re
 import logging
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.modules.clients.models import Client, ClientSetup, ClientOnboardingTask, ClientCheckin
 from app.modules.clients.schemas import ClientIntakePayload, ClientCheckinPayload, TaskStatusUpdate
@@ -170,6 +171,70 @@ def get_checkins(db: Session, client_id: str) -> List[ClientCheckin]:
         .order_by(ClientCheckin.created_at.desc())
         .all()
     )
+
+
+def get_site_visit_brief(db: Session, client_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Assemble a pre-visit context brief for Courtney:
+    client record, devices + latest snapshot per device,
+    open onboarding tasks, latest check-in, open workshop jobs.
+    """
+    client = get_client(db, client_id)
+    if not client:
+        return None
+
+    # Devices registered for this client
+    devices_rows = db.execute(
+        text("SELECT * FROM client_devices WHERE client_id = :cid ORDER BY last_seen DESC"),
+        {"cid": client_id},
+    ).fetchall()
+
+    devices = []
+    for dev in devices_rows:
+        d = dict(dev._mapping)
+        # Latest snapshot for this device
+        snap_row = db.execute(
+            text("""
+                SELECT id, scan_date, risk_score, risk_level, recommendation_count,
+                       version, reason
+                FROM diagnostic_snapshots
+                WHERE serial = :serial
+                ORDER BY scan_date DESC LIMIT 1
+            """),
+            {"serial": d["serial"]},
+        ).fetchone()
+        d["latest_snapshot"] = dict(snap_row._mapping) if snap_row else None
+        devices.append(d)
+
+    # Open onboarding tasks
+    all_tasks = get_tasks(db, client_id)
+    open_tasks = [t for t in all_tasks if t.status != "completed"]
+    completed_tasks = [t for t in all_tasks if t.status == "completed"]
+
+    # Latest check-in
+    checkins = get_checkins(db, client_id)
+    latest_checkin = checkins[0] if checkins else None
+
+    # Open workshop jobs (not done/cancelled)
+    jobs_rows = db.execute(
+        text("""
+            SELECT job_ref, title, status, priority, source, serial, created_at, scheduled_date
+            FROM workshop_jobs
+            WHERE client_id = :cid AND status NOT IN ('done', 'cancelled')
+            ORDER BY created_at DESC
+        """),
+        {"cid": client_id},
+    ).fetchall()
+    open_jobs = [dict(r._mapping) for r in jobs_rows]
+
+    return {
+        "client": client,
+        "devices": devices,
+        "open_tasks": open_tasks,
+        "completed_task_count": len(completed_tasks),
+        "latest_checkin": latest_checkin,
+        "open_workshop_jobs": open_jobs,
+    }
 
 
 def map_formbricks_intake(raw: dict) -> Optional[ClientIntakePayload]:

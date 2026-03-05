@@ -78,21 +78,23 @@ async def on_client_created(payload: dict):
 @subscribe("diagnostics.upload_received")
 async def on_diagnostic_received(payload: dict):
     """
-    When a Scout diagnostic arrives for a client still marked 'new',
-    auto-progress status → 'active'. Scout has run, engagement is confirmed.
+    1. Auto-progress client status new → active when Scout diagnostic arrives.
+    2. Notify Courtney immediately if risk_level is CRITICAL or HIGH.
     """
     from app.modules.clients.models import Client
-    client_id = payload.get("client_id")
+    client_id  = payload.get("client_id")
+    serial     = payload.get("serial", "unknown")
+    risk_level = payload.get("risk_level", "")
+    snapshot_id = payload.get("snapshot_id")
+
     if not client_id:
         return
+
     try:
         db = get_session_factory()()
         try:
-            client = db.query(Client).filter(
-                Client.client_id == client_id,
-                Client.status == "new",
-            ).first()
-            if client:
+            client = db.query(Client).filter(Client.client_id == client_id).first()
+            if client and client.status == "new":
                 client.status = "active"
                 db.commit()
                 logger.info(f"Client {client_id}: new → active (Scout diagnostic received)")
@@ -100,3 +102,51 @@ async def on_diagnostic_received(payload: dict):
             db.close()
     except Exception as e:
         logger.error(f"Status auto-progression failed for {client_id}: {e}")
+
+    # Alert Courtney on CRITICAL or HIGH risk findings
+    if risk_level and risk_level.upper() in ("CRITICAL", "HIGH"):
+        recommendations = payload.get("recommendations", [])
+        rec_count = len(recommendations)
+        report_url = f"https://app.zasupport.com/api/reports/{client_id}"
+        if snapshot_id:
+            report_url += f"?snapshot_id={snapshot_id}"
+        client_url = f"{DASHBOARD_URL}/{client_id}"
+
+        subject = f"{'🚨 CRITICAL' if risk_level.upper() == 'CRITICAL' else '⚠️ HIGH'} Risk Diagnostic — {client_id}"
+        body_lines = [
+            f"Scout diagnostic uploaded for client: {client_id}",
+            f"Device: {serial}",
+            f"Risk Level: {risk_level.upper()}",
+            f"Recommendations: {rec_count}",
+            f"",
+        ]
+        if recommendations:
+            body_lines.append("Top findings:")
+            for r in recommendations[:5]:
+                sev = r.get("severity", "")
+                title = r.get("title", r.get("recommendation", str(r)))
+                body_lines.append(f"  [{sev}] {title}")
+            body_lines.append("")
+
+        body_lines += [
+            f"Client dashboard : {client_url}",
+            f"Download report  : {report_url}",
+        ]
+        body = "\n".join(body_lines)
+
+        try:
+            send_email(NOTIFY_TO, subject, body)
+            logger.info(f"High-risk diagnostic alert sent for {client_id} ({risk_level})")
+        except Exception as e:
+            logger.error(f"High-risk diagnostic email failed for {client_id}: {e}")
+
+        try:
+            level_tag = "*🚨 CRITICAL*" if risk_level.upper() == "CRITICAL" else "*⚠️ HIGH*"
+            slack_lines = [
+                f"{level_tag} Diagnostic — `{client_id}` | Device: `{serial}`",
+                f"Risk: *{risk_level.upper()}* | {rec_count} recommendation(s)",
+                f"<{client_url}|View Client> | <{report_url}|Download Report>",
+            ]
+            send_slack("\n".join(slack_lines))
+        except Exception as e:
+            logger.error(f"High-risk diagnostic Slack alert failed for {client_id}: {e}")

@@ -169,3 +169,37 @@ def get_checkins(client_id: str, db: Session = Depends(get_db)):
     if not service.get_client(db, client_id):
         raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
     return service.get_checkins(db, client_id)
+
+
+# ── Site Visit Brief ──────────────────────────────────────────────────────────
+
+@router.get("/{client_id}/brief", dependencies=[Depends(verify_agent_token)])
+def get_site_visit_brief(client_id: str, db: Session = Depends(get_db)):
+    """
+    Pre-visit context brief: client info, devices + latest snapshot,
+    open tasks, latest check-in, open workshop jobs.
+    """
+    brief = service.get_site_visit_brief(db, client_id)
+    if not brief:
+        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+
+    client = brief["client"]
+
+    def _snap(s):
+        if not s:
+            return None
+        return {k: (str(v) if hasattr(v, 'isoformat') else v) for k, v in s.items()}
+
+    def _dev(d):
+        out = {k: (str(v) if hasattr(v, 'isoformat') else v) for k, v in d.items() if k != "latest_snapshot"}
+        out["latest_snapshot"] = _snap(d.get("latest_snapshot"))
+        return out
+
+    return {
+        "client": ClientDetailOut.model_validate(client),
+        "devices": [_dev(d) for d in brief["devices"]],
+        "open_tasks": [ClientTaskOut.model_validate(t) for t in brief["open_tasks"]],
+        "completed_task_count": brief["completed_task_count"],
+        "latest_checkin": CheckinOut.model_validate(brief["latest_checkin"]) if brief["latest_checkin"] else None,
+        "open_workshop_jobs": brief["open_workshop_jobs"],
+    }

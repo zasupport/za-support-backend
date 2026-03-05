@@ -15,6 +15,7 @@ from app.services.patch_monitor import check_all_devices as patch_check
 from app.services.backup_monitor import check_all_devices as backup_check
 from app.services.report_generator import generate_all_reports
 from app.services.weekly_digest import run_weekly_digest
+import app.services.isp_outage_notifier  # noqa: F401 — registers isp.outage_detected subscriber
 
 logger = logging.getLogger(__name__)
 
