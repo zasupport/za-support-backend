@@ -307,3 +307,164 @@ async def get_installer(
     ]
 
     return PlainTextResponse("\n".join(lines), media_type="text/plain")
+
+
+# ── Repair / re-bootstrap ─────────────────────────────────────────────────────
+
+@router.get("/agent/repair", response_class=PlainTextResponse)
+async def get_repair_script(
+    client_id: str = Query(...),
+    token: str = Query(...),
+):
+    """
+    Generate a one-shot repair script for an already-installed agent.
+    Fixes config, refreshes all scripts, reloads daemons, runs a forced
+    diagnostic push, and verifies data arrived in the API.
+    Usage: curl -fsSL "https://api.zasupport.com/agent/repair?client_id=X&token=Y" -o /tmp/za_repair.sh
+           sudo bash /tmp/za_repair.sh
+    """
+    valid = _valid_token()
+    if valid and token != valid:
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    vt_key = os.getenv("VIRUSTOTAL_API_KEY", "")
+    abuseipdb_key = os.getenv("ABUSEIPDB_API_KEY", "")
+    hibp_key = os.getenv("HIBP_API_KEY", "")
+
+    # V3 download commands (one curl per file, atomic tmp→dest swap)
+    v3_downloads = []
+    for remote, local in V3_FILES:
+        v3_downloads.append(
+            f'_fetch "{remote}" "{local}"'
+        )
+    v3_dl = "\n".join(v3_downloads)
+
+    lines = [
+        "#!/bin/bash",
+        "# ZA Support — Agent Repair & Verify",
+        f"# Client: {client_id}",
+        "# Fixes config, refreshes all scripts, runs forced diagnostic, verifies push.",
+        "set -eo pipefail",
+        "",
+        f'INSTALL_DIR="/usr/local/za-support-diagnostics"',
+        f'CLIENT_ID="{client_id}"',
+        f'AUTH_TOKEN="{token}"',
+        f'API_URL="{API_URL}"',
+        'BLOG="/var/log/zasupport-bootstrap.log"',
+        "",
+        'if [[ $EUID -ne 0 ]]; then echo "ERROR: run with sudo"; exit 1; fi',
+        "",
+        'ts() { date "+%d/%m/%Y %H:%M:%S"; }',
+        'log() { echo "$(ts) $*" | tee -a "$BLOG"; }',
+        "",
+        "# Atomic download helper — tmp file then rename, skips if download fails",
+        '_fetch() {',
+        '  local remote="$1" local_rel="$2"',
+        '  local dest="$INSTALL_DIR/$local_rel"',
+        '  local tmp="${dest}.$$.tmp"',
+        f'  if curl -fsSL --max-time 60 "$API_URL$remote" -o "$tmp" 2>/dev/null; then',
+        '    mv "$tmp" "$dest"',
+        '  else',
+        '    rm -f "$tmp"',
+        '    log "[WARN] Failed to download $local_rel — keeping existing"',
+        '  fi',
+        '}',
+        "",
+        'echo ""',
+        'echo "╔══════════════════════════════════════════╗"',
+        'echo "║   ZA Support — Agent Repair & Verify    ║"',
+        f'echo "║   Client: {client_id:<32}║"',
+        'echo "╚══════════════════════════════════════════╝"',
+        'echo ""',
+        "",
+        "# ── 1. Write settings.conf ───────────────────────────────────────────────────",
+        'log "[1/6] Writing settings.conf..."',
+        'mkdir -p "$INSTALL_DIR/config"',
+        'cat > "$INSTALL_DIR/config/settings.conf" << CONFEOF',
+        "# ZA Support — Client Configuration",
+        f"# Client: {client_id}",
+        f'ZA_API_URL="{API_URL}"',
+        'ZA_API_ENDPOINT="/api/v1/agent/diagnostics"',
+        f'ZA_AUTH_TOKEN="{token}"',
+        f'ZA_API_TOKEN="{token}"',
+        f'ZA_CLIENT_ID="{client_id}"',
+        f'ZA_VT_API_KEY="{vt_key}"',
+        f'ZA_ABUSEIPDB_KEY="{abuseipdb_key}"',
+        f'ZA_HIBP_API_KEY="{hibp_key}"',
+        "CONFEOF",
+        'chmod 600 "$INSTALL_DIR/config/settings.conf"',
+        'log "[OK] settings.conf"',
+        "",
+        "# ── 2. Refresh all V3 scripts from API ───────────────────────────────────────",
+        'log "[2/6] Downloading latest V3 scripts..."',
+        'mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/modules" "$INSTALL_DIR/core"',
+        v3_dl,
+        'chmod -R 755 "$INSTALL_DIR/bin" "$INSTALL_DIR/modules" "$INSTALL_DIR/core"',
+        'log "[OK] V3 scripts refreshed"',
+        "",
+        "# ── 3. Refresh Shield Agent + auto-updater ───────────────────────────────────",
+        'log "[3/6] Refreshing Shield Agent and auto-updater..."',
+        'mkdir -p "$INSTALL_DIR/agent"',
+        f'_fetch "/agent/za_shield_agent.sh" "agent/za_shield_agent.sh"',
+        f'curl -fsSL --max-time 30 "{API_URL}/agent/update.sh" -o "$INSTALL_DIR/update.sh" 2>/dev/null || true',
+        'chmod 755 "$INSTALL_DIR/agent/za_shield_agent.sh" "$INSTALL_DIR/update.sh" 2>/dev/null',
+        '# Store current V3 hash so updater knows baseline',
+        f'curl -sf --max-time 10 "{API_URL}/api/v1/agent/v3-version" 2>/dev/null | \\',
+        '  python3 -c "import sys,json; print(json.load(sys.stdin).get(\'hash\',\'\'))" > "$INSTALL_DIR/.v3_hash" 2>/dev/null || true',
+        'log "[OK] Shield Agent + updater refreshed"',
+        "",
+        "# ── 4. Reload LaunchDaemon (picks up new scheduler) ──────────────────────────",
+        'log "[4/6] Reloading diagnostic daemon..."',
+        "launchctl unload /Library/LaunchDaemons/com.zasupport.diagnostic.plist 2>/dev/null || true",
+        "launchctl unload /Library/LaunchDaemons/com.zasupport.updater.plist 2>/dev/null || true",
+        "sleep 1",
+        "launchctl load -w /Library/LaunchDaemons/com.zasupport.diagnostic.plist 2>/dev/null || true",
+        "launchctl load -w /Library/LaunchDaemons/com.zasupport.updater.plist 2>/dev/null || true",
+        "rm -f /tmp/za_diag_last_run",
+        'log "[OK] Daemons reloaded, stamp cleared"',
+        "",
+        "# ── 5. Forced diagnostic push ────────────────────────────────────────────────",
+        'log "[5/6] Running full diagnostic (10-15 min)..."',
+        'echo ""',
+        'DIAG_START=$(date +%s)',
+        'bash "$INSTALL_DIR/bin/za_diag_full.sh" --push 2>&1 | tee -a "$BLOG"',
+        'DIAG_END=$(date +%s)',
+        'log "[OK] Diagnostic complete in $(( DIAG_END - DIAG_START ))s"',
+        "",
+        "# ── 6. Verify data in API ────────────────────────────────────────────────────",
+        'log "[6/6] Verifying push in API..."',
+        "sleep 8",
+        'SERIAL=$(system_profiler SPHardwareDataType 2>/dev/null | awk \'/Serial Number/{print $NF}\' || echo "UNKNOWN")',
+        f'RESP=$(curl -sf --max-time 15 -H "Authorization: Bearer {token}" \\',
+        f'  "{API_URL}/api/v1/diagnostics/devices/$SERIAL" 2>/dev/null || echo "{{}}")',
+        'SCAN_DATE=$(python3 -c "',
+        'import json,sys',
+        "d=json.loads(sys.argv[1])",
+        "snap=d.get('latest_snapshot') or {}",
+        "print(snap.get('scan_date','NOT_FOUND')[:16])",
+        "\" \"$RESP\" 2>/dev/null || echo 'ERROR')",
+        'RISK=$(python3 -c "',
+        'import json,sys',
+        "d=json.loads(sys.argv[1])",
+        "snap=d.get('latest_snapshot') or {}",
+        "print(snap.get('risk_score','?'))",
+        "\" \"$RESP\" 2>/dev/null || echo '?')",
+        'echo ""',
+        'echo "╔══════════════════════════════════════════╗"',
+        'echo "║           REPAIR COMPLETE                ║"',
+        'echo "╠══════════════════════════════════════════╣"',
+        'printf "║  Device:    %-29s║\\n" "$SERIAL"',
+        f'printf "║  Client:    %-29s║\\n" "{client_id}"',
+        'printf "║  Last scan: %-29s║\\n" "$SCAN_DATE"',
+        'printf "║  Risk score:%-29s║\\n" "$RISK"',
+        'echo "╚══════════════════════════════════════════╝"',
+        'echo ""',
+        'if [[ "$SCAN_DATE" == "NOT_FOUND" || "$SCAN_DATE" == "ERROR" ]]; then',
+        '  echo "[FAIL] Data not confirmed in API — check log: $BLOG"',
+        '  exit 1',
+        'else',
+        '  echo "[PASS] Data confirmed in API — all systems operational"',
+        'fi',
+    ]
+
+    return PlainTextResponse("\n".join(lines), media_type="text/plain")
