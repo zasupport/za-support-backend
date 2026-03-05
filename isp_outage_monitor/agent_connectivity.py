@@ -12,7 +12,10 @@ Add to your existing Health Check agent's main loop:
     await checker.check_and_report()  # call every 60 seconds
 """
 import asyncio
+import json
+import os
 import platform
+import sqlite3
 import subprocess
 import socket
 import time
@@ -63,6 +66,67 @@ class ConnectivityChecker:
             "http://connectivitycheck.gstatic.com/generate_204",
         ]
         self.ping_targets = ["8.8.8.8", "1.1.1.1"]      # Google DNS, Cloudflare DNS
+
+        # SQLite queue for offline buffering
+        queue_dir = os.path.expanduser("~/.zasupport")
+        os.makedirs(queue_dir, exist_ok=True)
+        self._queue_db = os.path.join(queue_dir, "connectivity_queue.db")
+        self._init_queue()
+
+    def _init_queue(self):
+        """Create the local SQLite queue table if it doesn't exist."""
+        with sqlite3.connect(self._queue_db) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS queued_reports (
+                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    payload TEXT    NOT NULL,
+                    queued_at TEXT  NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.commit()
+
+    def _queue_report(self, result: ConnectivityResult):
+        """Store a connectivity report in the local queue for later retry."""
+        with sqlite3.connect(self._queue_db) as conn:
+            conn.execute(
+                "INSERT INTO queued_reports (payload) VALUES (?)",
+                (json.dumps(asdict(result)),),
+            )
+            conn.commit()
+        logger.debug("Connectivity report queued locally for retry")
+
+    async def _flush_queue(self):
+        """Attempt to send any queued offline reports to the backend."""
+        with sqlite3.connect(self._queue_db) as conn:
+            rows = conn.execute(
+                "SELECT id, payload FROM queued_reports ORDER BY id LIMIT 20"
+            ).fetchall()
+
+        if not rows:
+            return
+
+        import urllib.request
+        flushed = 0
+        for row_id, payload_str in rows:
+            try:
+                data = payload_str.encode()
+                req = urllib.request.Request(
+                    f"{self.api_url}/api/v1/isp/agent-report",
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status in (200, 202):
+                        with sqlite3.connect(self._queue_db) as conn:
+                            conn.execute("DELETE FROM queued_reports WHERE id = ?", (row_id,))
+                            conn.commit()
+                        flushed += 1
+            except Exception:
+                break  # still offline — stop flushing
+
+        if flushed:
+            logger.info(f"[ConnectivityQueue] Flushed {flushed} queued report(s) to backend")
 
     async def check_and_report(self) -> ConnectivityResult:
         """
@@ -274,11 +338,17 @@ class ConnectivityChecker:
     # Report to backend
     # ==========================================================
     async def _send_report(self, result: ConnectivityResult):
-        """Send connectivity report to Health Check backend."""
-        try:
-            import urllib.request
-            import json
+        """Send connectivity report to Health Check backend. Queues locally on failure."""
+        import urllib.request
 
+        # First try to flush any previously queued reports
+        if result.is_online:
+            try:
+                await self._flush_queue()
+            except Exception:
+                pass
+
+        try:
             data = json.dumps(asdict(result)).encode()
             req = urllib.request.Request(
                 f"{self.api_url}/api/v1/isp/agent-report",
@@ -287,15 +357,14 @@ class ConnectivityChecker:
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
-                if resp.status == 202:
+                if resp.status in (200, 202):
                     logger.debug("Connectivity report sent successfully")
                 else:
                     logger.warning(f"Report response: {resp.status}")
 
         except Exception as e:
-            # Can't reach backend — store for later retry
             logger.warning(f"Cannot reach backend to send report: {e}")
-            # TODO: Queue locally in SQLite for retry when connection returns
+            self._queue_report(result)
 
 
 # ==========================================================
