@@ -124,6 +124,18 @@ def generate_report(
             {"client_id": client_id, "serial": serial,
              "snapshot_id": snap.get("id"), "filename": filename},
         )
+        # Auto-complete "Generate Health Check Assessment report" task
+        db.execute(
+            text("""
+            UPDATE client_onboarding_tasks
+            SET status = 'completed', completed_at = NOW(),
+                notes = 'Auto-completed: CyberPulse Assessment generated via dashboard'
+            WHERE client_id = :cid
+              AND task ILIKE '%Health Check Assessment%'
+              AND status != 'completed'
+            """),
+            {"cid": client_id},
+        )
         db.commit()
     except Exception as e:
         logger.warning(f"Failed to log generated report: {e}")

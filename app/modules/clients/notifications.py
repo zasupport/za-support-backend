@@ -91,13 +91,28 @@ async def on_diagnostic_received(payload: dict):
         return
 
     try:
+        from app.modules.clients.models import ClientOnboardingTask
         db = get_session_factory()()
         try:
             client = db.query(Client).filter(Client.client_id == client_id).first()
             if client and client.status == "new":
                 client.status = "active"
-                db.commit()
                 logger.info(f"Client {client_id}: new → active (Scout diagnostic received)")
+
+            # Auto-complete the Scout diagnostic task
+            scout_task = db.query(ClientOnboardingTask).filter(
+                ClientOnboardingTask.client_id == client_id,
+                ClientOnboardingTask.task.ilike("%Scout diagnostic%"),
+                ClientOnboardingTask.status != "completed",
+            ).first()
+            if scout_task:
+                from datetime import datetime, timezone
+                scout_task.status = "completed"
+                scout_task.completed_at = datetime.now(timezone.utc)
+                scout_task.notes = f"Auto-completed: Scout diagnostic received (serial: {serial})"
+                logger.info(f"Client {client_id}: Scout diagnostic task auto-completed")
+
+            db.commit()
         finally:
             db.close()
     except Exception as e:

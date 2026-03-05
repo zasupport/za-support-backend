@@ -171,6 +171,61 @@ def get_checkins(client_id: str, db: Session = Depends(get_db)):
     return service.get_checkins(db, client_id)
 
 
+# ── Morning Operations View ───────────────────────────────────────────────────
+
+@router.get("/morning/overview", dependencies=[Depends(verify_agent_token)])
+def morning_overview(db: Session = Depends(get_db)):
+    """
+    Daily operations view: all active/new clients with their current health snapshot.
+    Returns per-client: name, status, last scan date, risk level, days since scan,
+    open task count, open workshop job count.
+    """
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT
+            c.client_id,
+            c.first_name,
+            c.last_name,
+            c.status,
+            c.urgency_level,
+            c.has_business,
+            -- latest diagnostic snapshot across all client devices
+            (SELECT s.scan_date
+             FROM diagnostic_snapshots s
+             JOIN client_devices d ON d.serial = s.serial
+             WHERE d.client_id = c.client_id
+             ORDER BY s.scan_date DESC LIMIT 1) AS last_scan_date,
+            (SELECT s.risk_level
+             FROM diagnostic_snapshots s
+             JOIN client_devices d ON d.serial = s.serial
+             WHERE d.client_id = c.client_id
+             ORDER BY s.scan_date DESC LIMIT 1) AS risk_level,
+            (SELECT s.risk_score
+             FROM diagnostic_snapshots s
+             JOIN client_devices d ON d.serial = s.serial
+             WHERE d.client_id = c.client_id
+             ORDER BY s.scan_date DESC LIMIT 1) AS risk_score,
+            (SELECT EXTRACT(DAY FROM NOW() - s.scan_date)::int
+             FROM diagnostic_snapshots s
+             JOIN client_devices d ON d.serial = s.serial
+             WHERE d.client_id = c.client_id
+             ORDER BY s.scan_date DESC LIMIT 1) AS days_since_scan,
+            (SELECT COUNT(*) FROM client_onboarding_tasks t
+             WHERE t.client_id = c.client_id AND t.status != 'completed') AS open_tasks,
+            (SELECT COUNT(*) FROM workshop_jobs j
+             WHERE j.client_id = c.client_id AND j.status NOT IN ('done', 'cancelled')) AS open_jobs,
+            (SELECT COUNT(*) FROM client_devices d WHERE d.client_id = c.client_id AND d.is_active = TRUE) AS device_count
+        FROM clients c
+        WHERE c.status IN ('new', 'active', 'sla')
+        ORDER BY
+            CASE c.urgency_level WHEN 'Urgent' THEN 0 ELSE 1 END,
+            c.status,
+            c.first_name
+    """)).fetchall()
+
+    return [dict(r._mapping) for r in rows]
+
+
 # ── Site Visit Brief ──────────────────────────────────────────────────────────
 
 @router.get("/{client_id}/brief", dependencies=[Depends(verify_agent_token)])
