@@ -12,6 +12,8 @@ from app.api import health, devices, network, alerts, dashboard, diagnostics, is
 from diagnostics.router import router as diagnostics_router
 from app.modules.vault.router import router as vault_router
 from app.modules.shield_agent.router import router as shield_router
+from app.modules.app_intelligence.router import router as app_intelligence_router
+from app.modules.interaction_analytics.router import router as interaction_analytics_router
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
 from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
 import logging
@@ -63,6 +65,8 @@ app.include_router(system.router, prefix="/api/v1/system", tags=["System"])
 app.include_router(diagnostics_router)
 app.include_router(vault_router)
 app.include_router(shield_router)
+app.include_router(app_intelligence_router)
+app.include_router(interaction_analytics_router)
 
 
 @app.get("/", tags=["Root"])
@@ -85,6 +89,8 @@ async def root():
             "system_jobs": "/api/v1/system/jobs",
             "system_status": "/api/v1/system/status",
             "shield": "/api/v1/shield",
+            "app_intelligence": "/api/v1/app-intelligence",
+            "interaction_analytics": "/api/v1/interaction-analytics",
         }
     }
 
