@@ -7,7 +7,7 @@ from sqlalchemy import (
     ForeignKey, Index, Enum as SAEnum
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 from app.core.database import Base
 
@@ -43,8 +43,8 @@ class Device(Base):
     serial_number = Column(String(64), nullable=True, index=True)
     os_version = Column(String(64), nullable=True)
     agent_version = Column(String(32), nullable=True)
-    last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    registered_at = Column(DateTime, default=datetime.utcnow)
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    registered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_active = Column(Boolean, default=True)
     metadata_ = Column("metadata", JSON, nullable=True)
 
@@ -59,7 +59,7 @@ class HealthData(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     machine_id = Column(String(128), ForeignKey("devices.machine_id"), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     cpu_percent = Column(Float)
     memory_percent = Column(Float)
     disk_percent = Column(Float)
@@ -87,7 +87,7 @@ class NetworkData(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     controller_id = Column(String(128), nullable=False, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     total_clients = Column(Integer)
     total_devices = Column(Integer)
     wan_status = Column(String(16), nullable=True)
@@ -106,7 +106,7 @@ class Alert(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     machine_id = Column(String(128), ForeignKey("devices.machine_id"), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     severity = Column(String(16), default=AlertSeverity.INFO.value)
     category = Column(String(64), nullable=False)
     message = Column(Text, nullable=False)
@@ -197,8 +197,8 @@ class WorkshopDiagnostic(Base):
     runtime_seconds = Column(Integer, nullable=True)
 
     # Timestamps
-    captured_at = Column(DateTime, default=datetime.utcnow, index=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    captured_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_diag_serial_captured", "serial_number", "captured_at"),
@@ -225,7 +225,7 @@ class AgentHeartbeatRecord(Base):
     serial = Column(String(64), nullable=False, index=True)
     hostname = Column(String(256), nullable=True)
     client_id = Column(String(128), nullable=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     # Telemetry
     cpu_load = Column(Float, nullable=True)
@@ -256,7 +256,7 @@ class DiagnosticReport(Base):
     serial = Column(String(64), nullable=False, index=True)
     hostname = Column(String(256), nullable=True)
     client_id = Column(String(128), nullable=True, index=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, index=True)
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     payload = Column(JSON, nullable=False)  # Full za_diag_v3.sh JSON
 
     __table_args__ = (
@@ -299,8 +299,8 @@ class ISPProvider(Base):
     underlying_provider = Column(String(128), nullable=True)
     current_status = Column(String(16), default=ISPStatus.OPERATIONAL.value)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     status_checks = relationship("ISPStatusCheck", back_populates="provider", lazy="dynamic")
     connectivity_records = relationship("AgentConnectivity", back_populates="provider", lazy="dynamic")
@@ -313,7 +313,7 @@ class ISPStatusCheck(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     provider_id = Column(Integer, ForeignKey("isp_providers.id"), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     source = Column(String(32), nullable=False)  # CheckSource value
     status = Column(String(16), default=ISPStatus.OPERATIONAL.value)
     response_time_ms = Column(Float, nullable=True)
@@ -336,7 +336,7 @@ class AgentConnectivity(Base):
     id = Column(Integer, primary_key=True, index=True)
     machine_id = Column(String(128), ForeignKey("devices.machine_id"), nullable=False)
     provider_id = Column(Integer, ForeignKey("isp_providers.id"), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     state = Column(String(16), default=ConnectivityState.CONNECTED.value)
     latency_ms = Column(Float, nullable=True)
     packet_loss_pct = Column(Float, nullable=True)
@@ -357,14 +357,14 @@ class ISPOutage(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     provider_id = Column(Integer, ForeignKey("isp_providers.id"), nullable=False)
-    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     ended_at = Column(DateTime, nullable=True)
     severity = Column(String(16), default=ISPStatus.OUTAGE.value)
     confirmed = Column(Boolean, default=False)
     confirmation_sources = Column(JSON, nullable=True)  # List of source names
     description = Column(Text, nullable=True)
     auto_resolved = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     provider = relationship("ISPProvider", back_populates="outages")
 
@@ -385,7 +385,7 @@ class SystemEvent(Base):
     detail = Column(JSON, nullable=True)
     device_serial = Column(String(64), nullable=True, index=True)
     client_id = Column(String(128), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     __table_args__ = (
         Index("ix_sysevent_type_created", "event_type", "created_at"),
@@ -407,7 +407,7 @@ class ScheduledJob(Base):
     last_status = Column(String(16), default="pending")
     last_error = Column(Text, nullable=True)
     run_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_schedjob_enabled", "enabled"),
@@ -425,7 +425,7 @@ class PatchStatus(Base):
     latest_os = Column(String(32), nullable=True)
     pending_updates = Column(JSON, nullable=True)
     days_behind = Column(Integer, default=0)
-    last_checked = Column(DateTime, default=datetime.utcnow)
+    last_checked = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     notified_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
@@ -446,7 +446,7 @@ class BackupStatus(Base):
     third_party_agent = Column(String(64), nullable=True)
     third_party_last_backup = Column(DateTime, nullable=True)
     no_backup = Column(Boolean, default=False)
-    last_checked = Column(DateTime, default=datetime.utcnow)
+    last_checked = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     notified_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
@@ -465,4 +465,4 @@ class NotificationLog(Base):
     event_id = Column(Integer, nullable=True)
     status = Column(String(16), default="sent")
     error = Column(Text, nullable=True)
-    sent_at = Column(DateTime, default=datetime.utcnow, index=True)
+    sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

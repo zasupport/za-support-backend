@@ -70,7 +70,7 @@ def _send(db: Session):
     scan_count = new_scans.cnt if new_scans else 0
 
     # ── Build email body ─────────────────────────────────────────────────
-    now_str = datetime.now().strftime("%A %d %B %Y")
+    now_str = datetime.now(timezone.utc).strftime("%A %d %B %Y")
     lines = [
         f"ZA Support — Weekly Operations Digest",
         f"Week of {now_str}",

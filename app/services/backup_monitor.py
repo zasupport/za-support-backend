@@ -88,7 +88,8 @@ def _update_from_diagnostic(bs: BackupStatus, raw: dict):
             try:
                 last_dt = datetime.fromisoformat(last_backup_str.replace("Z", "+00:00"))
                 bs.last_tm_backup = last_dt
-                bs.tm_days_stale = (datetime.now(timezone.utc) - last_dt.replace(tzinfo=None)).days
+                last_aware = last_dt if last_dt.tzinfo else last_dt.replace(tzinfo=timezone.utc)
+                bs.tm_days_stale = (datetime.now(timezone.utc) - last_aware).days
             except (ValueError, TypeError):
                 pass
 
