@@ -123,6 +123,22 @@ def checkin(payload: ClientCheckinPayload, db: Session = Depends(get_db)):
     return service.create_checkin(db, payload)
 
 
+# ── ISP Map ───────────────────────────────────────────────────────────────────
+
+@router.get("/isp-map", dependencies=[Depends(verify_agent_token)])
+def client_isp_map(db: Session = Depends(get_db)):
+    """Per-client ISP name for impact mapping on the ISP status page."""
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT c.client_id, c.first_name, c.last_name, cs.isp
+        FROM clients c
+        LEFT JOIN client_setup cs ON cs.client_id = c.client_id
+        WHERE c.status IN ('new', 'active', 'sla')
+        ORDER BY c.first_name
+    """)).fetchall()
+    return [dict(r._mapping) for r in rows]
+
+
 # ── Client CRUD ───────────────────────────────────────────────────────────────
 
 @router.get("", dependencies=[Depends(verify_agent_token)])
@@ -218,7 +234,6 @@ def client_health(client_id: str, db: Session = Depends(get_db)):
 
         # Days since scan
         if snap.scan_date:
-            import pytz
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc)
             scan_dt = snap.scan_date
