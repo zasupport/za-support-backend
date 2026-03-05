@@ -1,10 +1,10 @@
 """
-Agent Delivery — serves the combined Shield Agent + CyberPulse installer and all script files.
+Agent Delivery — serves the combined Shield Agent + Health Check Scout installer and all script files.
 
 GET /agent/install?client_id=X&token=Y
     Generates a combined bash installer:
     - ZA Shield Agent (real-time monitoring, LaunchDaemon, auto-update)
-    - CyberPulse V3 Diagnostic (daily scheduled run → pushes JSON to V11)
+    - Health Check Scout Diagnostic (daily scheduled run → pushes JSON to V11)
 
 GET /agent/za_shield_agent.sh         — Shield Agent script (for self-updates)
 GET /agent/v3/bin/<file>              — V3 diagnostic bin scripts
@@ -137,7 +137,7 @@ async def get_installer(
 ):
     """
     Generate combined bash installer for a client.
-    Installs: ZA Shield Agent (real-time) + CyberPulse V3 (daily diagnostic push).
+    Installs: ZA Shield Agent (real-time) + Health Check Scout (daily diagnostic push).
     Usage: curl -fsSL "https://api.zasupport.com/agent/install?client_id=X&token=Y" | sudo bash
     """
     valid = _valid_token()
@@ -160,7 +160,7 @@ async def get_installer(
         "#!/bin/bash",
         "# ZA Support — Combined Agent Installer",
         f"# Client: {client_id}",
-        "# Installs: Shield Agent (real-time) + CyberPulse V3 (daily diagnostic)",
+        "# Installs: Shield Agent (real-time) + Health Check Scout (daily diagnostic)",
         "set -eo pipefail",
         "",
         f'INSTALL_DIR="/usr/local/za-support-diagnostics"',
@@ -173,7 +173,7 @@ async def get_installer(
         "",
         'echo "=== ZA Support Agent Installer ==="',
         'echo "Client:  $CLIENT_ID"',
-        'echo "Installs: Shield Agent + CyberPulse Diagnostic"',
+        'echo "Installs: Shield Agent + Health Check Scout"',
         'echo ""',
         "",
         "if [[ $EUID -ne 0 ]]; then echo 'ERROR: Run with sudo'; exit 1; fi",
@@ -202,10 +202,10 @@ async def get_installer(
         'chmod 755 "$INSTALL_DIR/agent/za_shield_agent.sh"',
         'echo "[OK] Shield Agent"',
         "",
-        "# ── Download CyberPulse V3 diagnostic scripts ──",
+        "# ── Download Health Check Scout diagnostic scripts ──",
         downloads,
         "chmod -R 755 $INSTALL_DIR/bin $INSTALL_DIR/modules $INSTALL_DIR/core",
-        'echo "[OK] CyberPulse V3 scripts"',
+        'echo "[OK] Health Check Scout scripts"',
         "",
         "# ── Download auto-updater (self-updating — Shield Agent + V3 scripts) ──",
         f'curl -fsSL "{API_URL}/agent/update.sh" -o "$INSTALL_DIR/update.sh"',
@@ -233,7 +233,7 @@ async def get_installer(
         "PLISTEOF",
         "chmod 644 /Library/LaunchDaemons/com.zasupport.shield.plist",
         "",
-        "# ── CyberPulse Diagnostic LaunchDaemon (runs once daily, every 4h check) ──",
+        "# ── Health Check Scout LaunchDaemon (runs once daily, every 4h check) ──",
         "cat > /Library/LaunchDaemons/com.zasupport.diagnostic.plist << 'PLISTEOF'",
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -292,7 +292,7 @@ async def get_installer(
         'echo "=== ZA Support Installation Complete ==="',
         'echo ""',
         'echo "  Shield Agent:      RUNNING — real-time security monitoring"',
-        'echo "  CyberPulse Diag:   RUNNING — daily full diagnostic (pushes to V11)"',
+        'echo "  Health Check Scout:   RUNNING — daily full diagnostic (pushes to V11)"',
         'echo "  Auto-Updater:      RUNNING — hourly version check, self-updates"',
         'echo ""',
         'echo "  Logs:"',
@@ -302,7 +302,7 @@ async def get_installer(
         'echo ""',
         'echo "  Verify: sudo launchctl list | grep zasupport"',
         'echo ""',
-        'echo "  First CyberPulse diagnostic will run now in the background."',
+        'echo "  First Health Check Scout diagnostic will run now in the background."',
         'echo "  Results will push to api.zasupport.com automatically."',
     ]
 
