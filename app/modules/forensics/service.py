@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -105,14 +106,14 @@ class ForensicsService:
 
         if self.db:
             self.db.execute(
-                """
+                text("""
                 INSERT INTO forensic_investigations
                     (id, client_id, device_id, device_hostname, device_os,
                      scope, status, initiated_by, reason, created_at)
                 VALUES
                     (:id, :client_id, :device_id, :device_hostname, :device_os,
                      :scope, 'pending'::investigation_status, :initiated_by, :reason, NOW())
-                """,
+                """),
                 {
                     "id":            investigation_id,
                     "client_id":     record["client_id"],
@@ -150,13 +151,13 @@ class ForensicsService:
 
         if self.db:
             self.db.execute(
-                """
+                text("""
                 UPDATE forensic_investigations
                 SET status = 'consent_granted'::investigation_status,
                     consent_obtained_by = :by, consent_method = :method,
                     consent_reference = :ref, consent_timestamp = NOW()
                 WHERE id = :id
-                """,
+                """),
                 {
                     "id":     investigation_id,
                     "by":     record["consent_obtained_by"],
@@ -193,7 +194,7 @@ class ForensicsService:
 
         if self.db:
             self.db.execute(
-                "UPDATE forensic_investigations SET status='running'::investigation_status, started_at=NOW() WHERE id=:id",
+                text("UPDATE forensic_investigations SET status='running'::investigation_status, started_at=NOW() WHERE id=:id"),
                 {"id": investigation_id},
             )
             self.db.commit()
@@ -267,13 +268,13 @@ class ForensicsService:
 
         if self.db:
             self.db.execute(
-                """
+                text("""
                 UPDATE forensic_investigations
                 SET status='complete'::investigation_status, completed_at=NOW(),
                     findings_critical=:cc, findings_high=:hc,
                     findings_medium=:mc, findings_low=:lc, findings_info=:ic
                 WHERE id=:id
-                """,
+                """),
                 {
                     "id": investigation_id,
                     "cc": critical, "hc": high,
@@ -282,14 +283,14 @@ class ForensicsService:
             )
             for f in all_findings:
                 self.db.execute(
-                    """
+                    text("""
                     INSERT INTO forensic_findings
                         (investigation_id, tool_id, severity,
                          category, title, detail, raw_evidence, source_file)
                     VALUES
                         (:inv, :tool, :sev::finding_severity,
                          :cat, :title, :detail, :raw, :src)
-                    """,
+                    """),
                     {
                         "inv":    investigation_id,
                         "tool":   f.get("tool_id", "unknown"),
@@ -311,7 +312,7 @@ class ForensicsService:
         """Load investigation from DB (fallback: local /tmp)."""
         if self.db:
             row = self.db.execute(
-                "SELECT * FROM forensic_investigations WHERE id = :id",
+                text("SELECT * FROM forensic_investigations WHERE id = :id"),
                 {"id": investigation_id},
             ).fetchone()
             if row:
@@ -349,7 +350,7 @@ class ForensicsService:
             params["limit"]  = limit
             params["offset"] = offset
             rows = self.db.execute(
-                f"SELECT * FROM forensic_investigations {where} ORDER BY created_at DESC LIMIT :limit OFFSET :offset",
+                text(f"SELECT * FROM forensic_investigations {where} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"),
                 params,
             ).fetchall()
             return [dict(r._mapping) for r in rows]
@@ -384,7 +385,7 @@ class ForensicsService:
             if reviewed is not None:
                 filters.append("reviewed_at IS " + ("NOT NULL" if reviewed else "NULL"))
             rows = self.db.execute(
-                f"SELECT * FROM forensic_findings WHERE {' AND '.join(filters)} ORDER BY severity",
+                text(f"SELECT * FROM forensic_findings WHERE {' AND '.join(filters)} ORDER BY severity"),
                 params,
             ).fetchall()
             return [dict(r._mapping) for r in rows]
@@ -415,18 +416,18 @@ class ForensicsService:
         """Mark a finding as reviewed by an analyst."""
         if self.db:
             self.db.execute(
-                """
+                text("""
                 UPDATE forensic_findings
                 SET reviewed_at = NOW(), reviewed_by = :by,
                     is_false_positive = :fp, review_notes = :notes
                 WHERE id = :id AND investigation_id = :inv
-                """,
+                """),
                 {"id": finding_id, "inv": investigation_id,
                  "by": reviewed_by, "fp": is_false_positive, "notes": notes},
             )
             self.db.commit()
             row = self.db.execute(
-                "SELECT * FROM forensic_findings WHERE id = :id", {"id": finding_id}
+                text("SELECT * FROM forensic_findings WHERE id = :id"), {"id": finding_id}
             ).fetchone()
             if not row:
                 raise ValueError(f"Finding {finding_id} not found.")
@@ -449,12 +450,12 @@ class ForensicsService:
 
         if self.db:
             self.db.execute(
-                """
+                text("""
                 UPDATE forensic_investigations
                 SET status='cancelled'::investigation_status,
                     cancellation_reason=:reason
                 WHERE id=:id
-                """,
+                """),
                 {"id": investigation_id, "reason": reason},
             )
             self.db.commit()

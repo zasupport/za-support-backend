@@ -9,7 +9,7 @@ from app.modules.interaction_analytics.schemas import InteractionReport, Interac
 
 def _insert_single(db: Session, device_id: str, client_id: str, entry: InteractionDataPoint):
     db.execute(
-        """
+        text("""
         INSERT INTO interaction_metrics (
             device_id, client_id, timestamp,
             foreground_app, foreground_app_bundle_id,
@@ -39,7 +39,7 @@ def _insert_single(db: Session, device_id: str, client_id: str, entry: Interacti
             :hover_events, :hesitation_events, :abandoned_actions, :avg_hesitation_ms,
             :frustration_score
         )
-        """,
+        """),
         {
             "device_id": device_id,
             "client_id": client_id,
@@ -156,7 +156,7 @@ def get_summary(db: Session, device_id: str, period_days: int = 7) -> dict:
     """Aggregated summary for a device."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             AVG(typing_speed_wpm) AS avg_typing_speed_wpm,
             AVG(backspace_ratio) AS avg_backspace_ratio,
@@ -170,7 +170,7 @@ def get_summary(db: Session, device_id: str, period_days: int = 7) -> dict:
             COUNT(*) AS sample_count
         FROM interaction_metrics
         WHERE device_id = :device_id AND timestamp >= :cutoff
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     row = result.fetchone()
@@ -185,7 +185,7 @@ def get_frustration_timeline(
 ) -> List[dict]:
     """Frustration score over time within a date range."""
     result = db.execute(
-        """
+        text("""
         SELECT timestamp, frustration_score, foreground_app
         FROM interaction_metrics
         WHERE device_id = :device_id
@@ -193,7 +193,7 @@ def get_frustration_timeline(
           AND timestamp <= :end
           AND frustration_score IS NOT NULL
         ORDER BY timestamp ASC
-        """,
+        """),
         {"device_id": device_id, "start": start, "end": end},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -203,7 +203,7 @@ def get_app_breakdown(db: Session, device_id: str, period_days: int = 7) -> List
     """Per-app interaction metrics."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             foreground_app,
             foreground_app_bundle_id,
@@ -217,7 +217,7 @@ def get_app_breakdown(db: Session, device_id: str, period_days: int = 7) -> List
         WHERE device_id = :device_id AND timestamp >= :cutoff
         GROUP BY foreground_app, foreground_app_bundle_id
         ORDER BY avg_frustration_score DESC NULLS LAST
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -227,7 +227,7 @@ def get_typing_trend(db: Session, device_id: str, period_days: int = 14) -> List
     """Daily typing speed trend."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             DATE_TRUNC('day', timestamp)::date AS date,
             AVG(typing_speed_wpm) AS avg_typing_speed_wpm,
@@ -237,7 +237,7 @@ def get_typing_trend(db: Session, device_id: str, period_days: int = 14) -> List
         WHERE device_id = :device_id AND timestamp >= :cutoff
         GROUP BY date
         ORDER BY date ASC
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -249,7 +249,7 @@ def get_anomalies(db: Session, device_id: str, period_days: int = 7) -> List[dic
 
     # Fetch baselines for this device
     baselines_result = db.execute(
-        "SELECT metric_name, baseline_mean, baseline_stddev FROM interaction_baselines WHERE device_id = :device_id",
+        text("SELECT metric_name, baseline_mean, baseline_stddev FROM interaction_baselines WHERE device_id = :device_id"),
         {"device_id": device_id},
     )
     baselines = {row.metric_name: row for row in baselines_result.fetchall()}
@@ -259,7 +259,7 @@ def get_anomalies(db: Session, device_id: str, period_days: int = 7) -> List[dic
 
     anomalies = []
     metrics_result = db.execute(
-        """
+        text("""
         SELECT timestamp, foreground_app,
                typing_speed_wpm, backspace_ratio, frustration_score,
                rage_click_count, avg_dwell_time_ms
@@ -267,7 +267,7 @@ def get_anomalies(db: Session, device_id: str, period_days: int = 7) -> List[dic
         WHERE device_id = :device_id AND timestamp >= :cutoff
         ORDER BY timestamp DESC
         LIMIT 500
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     for row in metrics_result.fetchall():
@@ -299,7 +299,7 @@ def get_fleet_summary(db: Session, client_id: str, period_days: int = 7) -> List
     """All devices aggregated for a client."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             device_id,
             AVG(frustration_score) AS avg_frustration_score,
@@ -311,7 +311,7 @@ def get_fleet_summary(db: Session, client_id: str, period_days: int = 7) -> List
         WHERE client_id = :client_id AND timestamp >= :cutoff
         GROUP BY device_id
         ORDER BY avg_frustration_score DESC NULLS LAST
-        """,
+        """),
         {"client_id": client_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -321,7 +321,7 @@ def get_frustration_hotspots(db: Session, client_id: str, period_days: int = 7) 
     """Top frustration-causing apps across fleet."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             foreground_app,
             foreground_app_bundle_id,
@@ -338,7 +338,7 @@ def get_frustration_hotspots(db: Session, client_id: str, period_days: int = 7) 
         HAVING AVG(frustration_score) > 40
         ORDER BY avg_frustration_score DESC NULLS LAST
         LIMIT 20
-        """,
+        """),
         {"client_id": client_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -362,7 +362,7 @@ def recalculate_baselines(db: Session, device_id: str) -> dict:
     updated = []
     for metric in metrics_to_baseline:
         result = db.execute(
-            f"""
+            text(f"""
             SELECT
                 AVG({metric}) AS mean,
                 STDDEV({metric}) AS stddev,
@@ -371,7 +371,7 @@ def recalculate_baselines(db: Session, device_id: str) -> dict:
             WHERE device_id = :device_id
               AND timestamp >= :cutoff
               AND {metric} IS NOT NULL
-            """,
+            """),
             {"device_id": device_id, "cutoff": cutoff},
         )
         row = result.fetchone()
@@ -379,7 +379,7 @@ def recalculate_baselines(db: Session, device_id: str) -> dict:
             continue
 
         db.execute(
-            """
+            text("""
             INSERT INTO interaction_baselines (device_id, metric_name, baseline_mean, baseline_stddev, sample_count, last_updated)
             VALUES (:device_id, :metric_name, :mean, :stddev, :sample_count, NOW())
             ON CONFLICT (device_id, metric_name)
@@ -388,7 +388,7 @@ def recalculate_baselines(db: Session, device_id: str) -> dict:
                 baseline_stddev = EXCLUDED.baseline_stddev,
                 sample_count = EXCLUDED.sample_count,
                 last_updated = NOW()
-            """,
+            """),
             {
                 "device_id": device_id,
                 "metric_name": metric,
@@ -427,7 +427,7 @@ def delete_device_data(db: Session, device_id: str) -> dict:
     deleted = {}
     for table in tables:
         result = db.execute(
-            f"DELETE FROM {table} WHERE device_id = :device_id",
+            text(f"DELETE FROM {table} WHERE device_id = :device_id"),
             {"device_id": device_id},
         )
         deleted[table] = result.rowcount

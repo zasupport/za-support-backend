@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -89,7 +90,7 @@ def get_context_switches(
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             DATE_TRUNC('hour', timestamp) AS hour,
             SUM(total_app_switches) AS total_switches,
@@ -98,7 +99,7 @@ def get_context_switches(
         WHERE device_id = :device_id AND date >= :cutoff
         GROUP BY hour
         ORDER BY hour ASC
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff.date()},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -112,12 +113,12 @@ def get_network_flags(
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT * FROM app_network_flags
         WHERE device_id = :device_id AND timestamp >= :cutoff
         ORDER BY timestamp DESC
         LIMIT 200
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -131,7 +132,7 @@ def get_responsiveness(
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             app_name,
             app_bundle_id,
@@ -145,7 +146,7 @@ def get_responsiveness(
           AND responsiveness_score IS NOT NULL
         GROUP BY app_name, app_bundle_id
         ORDER BY avg_responsiveness ASC NULLS LAST
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -176,7 +177,7 @@ def get_worst_apps(
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             app_name,
             app_bundle_id,
@@ -188,7 +189,7 @@ def get_worst_apps(
         HAVING AVG(health_score) < 70
         ORDER BY avg_health_score ASC NULLS LAST
         LIMIT 20
-        """,
+        """),
         {"client_id": client_id, "cutoff": cutoff.date()},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -202,7 +203,7 @@ def get_startup_comparison(
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             device_id,
             AVG(boot_to_ready_seconds) AS avg_boot_to_ready,
@@ -213,7 +214,7 @@ def get_startup_comparison(
         WHERE client_id = :client_id AND created_at >= :cutoff
         GROUP BY device_id
         ORDER BY avg_boot_to_ready DESC NULLS LAST
-        """,
+        """),
         {"client_id": client_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -229,7 +230,7 @@ def get_report_data(
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
 
     worst_apps_result = db.execute(
-        """
+        text("""
         SELECT app_name, app_bundle_id, AVG(health_score) AS avg_health_score,
                COUNT(DISTINCT device_id) AS affected_devices
         FROM app_health_scores
@@ -237,7 +238,7 @@ def get_report_data(
         GROUP BY app_name, app_bundle_id
         ORDER BY avg_health_score ASC NULLS LAST
         LIMIT 10
-        """,
+        """),
         {"client_id": client_id, "cutoff": cutoff.date()},
     )
     worst_apps = [dict(row._mapping) for row in worst_apps_result.fetchall()]
@@ -258,7 +259,7 @@ def set_app_classification(
 ):
     # device_id path param used for routing context; classification stored per client_id
     db.execute(
-        """
+        text("""
         INSERT INTO app_classifications (client_id, app_bundle_id, app_name, classification, classified_by)
         VALUES (:client_id, :app_bundle_id, :app_name, :classification, :classified_by)
         ON CONFLICT (client_id, app_bundle_id)
@@ -266,7 +267,7 @@ def set_app_classification(
             classification = EXCLUDED.classification,
             app_name = EXCLUDED.app_name,
             classified_by = EXCLUDED.classified_by
-        """,
+        """),
         {
             "client_id": device_id,
             "app_bundle_id": payload.app_bundle_id,

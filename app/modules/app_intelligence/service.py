@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -14,7 +15,7 @@ def store_metrics_report(db: Session, device_id: str, client_id: str, report: Ap
     inserted = 0
     for entry in report.metrics:
         db.execute(
-            """
+            text("""
             INSERT INTO app_resource_metrics (
                 device_id, client_id, timestamp,
                 app_name, app_bundle_id,
@@ -38,7 +39,7 @@ def store_metrics_report(db: Session, device_id: str, client_id: str, report: Ap
                 :thread_count_avg,
                 :responsiveness_score, :slow_interactions, :unresponsive_interactions
             )
-            """,
+            """),
             {
                 "device_id": device_id,
                 "client_id": client_id,
@@ -75,7 +76,7 @@ def store_startup_report(db: Session, device_id: str, client_id: str, data: Star
         login_items_json = json.dumps(data.login_items)
 
     result = db.execute(
-        """
+        text("""
         INSERT INTO startup_reports (
             device_id, client_id,
             boot_timestamp, login_timestamp,
@@ -91,7 +92,7 @@ def store_startup_report(db: Session, device_id: str, client_id: str, data: Star
             :login_items::jsonb, :total_login_items,
             :slowest_login_item, :slowest_login_item_seconds
         ) RETURNING id
-        """,
+        """),
         {
             "device_id": device_id,
             "client_id": client_id,
@@ -116,11 +117,11 @@ def get_app_health(db: Session, device_id: str, period_days: int = 7) -> List[di
     """Query app_health_scores for a device over the given period."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT * FROM app_health_scores
         WHERE device_id = :device_id AND date >= :cutoff
         ORDER BY date DESC, health_score ASC
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff.date()},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -138,7 +139,7 @@ def get_app_ranking(db: Session, device_id: str, period_days: int = 7, sort_by: 
         order_col = "total_foreground_minutes"
 
     result = db.execute(
-        f"""
+        text(f"""
         SELECT
             app_name,
             app_bundle_id,
@@ -152,7 +153,7 @@ def get_app_ranking(db: Session, device_id: str, period_days: int = 7, sort_by: 
         GROUP BY app_name, app_bundle_id
         ORDER BY {order_col} DESC NULLS LAST
         LIMIT 50
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -164,7 +165,7 @@ def get_resource_timeline(
     """Time series of resource usage for a specific app."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             timestamp,
             cpu_avg_percent,
@@ -177,7 +178,7 @@ def get_resource_timeline(
           AND app_bundle_id = :app_bundle_id
           AND timestamp >= :cutoff
         ORDER BY timestamp ASC
-        """,
+        """),
         {"device_id": device_id, "app_bundle_id": app_bundle_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -187,7 +188,7 @@ def get_foreground_breakdown(db: Session, device_id: str, period_days: int = 7) 
     """Time per app in foreground."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             app_name,
             app_bundle_id,
@@ -199,7 +200,7 @@ def get_foreground_breakdown(db: Session, device_id: str, period_days: int = 7) 
           AND is_foreground = TRUE
         GROUP BY app_name, app_bundle_id
         ORDER BY total_foreground_minutes DESC NULLS LAST
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -209,7 +210,7 @@ def get_startup_history(db: Session, device_id: str, period_days: int = 30) -> L
     """Boot time trend."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             id, boot_timestamp, login_timestamp,
             desktop_ready_timestamp, system_settled_timestamp,
@@ -219,7 +220,7 @@ def get_startup_history(db: Session, device_id: str, period_days: int = 30) -> L
         FROM startup_reports
         WHERE device_id = :device_id AND created_at >= :cutoff
         ORDER BY boot_timestamp DESC
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -229,11 +230,11 @@ def get_productivity(db: Session, device_id: str, period_days: int = 28) -> List
     """Weekly productivity scores."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT * FROM productivity_scores
         WHERE device_id = :device_id AND week_start >= :cutoff
         ORDER BY week_start DESC
-        """,
+        """),
         {"device_id": device_id, "cutoff": cutoff.date()},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -255,7 +256,7 @@ def generate_recommendations(db: Session, device_id: str, client_id: str) -> int
 
     # Remove stale undismissed recs so we regenerate fresh each time
     db.execute(
-        "DELETE FROM ai_recommendations WHERE device_id = :d AND dismissed_at IS NULL",
+        text("DELETE FROM ai_recommendations WHERE device_id = :d AND dismissed_at IS NULL"),
         {"d": device_id},
     )
 
@@ -263,7 +264,7 @@ def generate_recommendations(db: Session, device_id: str, client_id: str) -> int
 
     # --- App-level rules ---
     app_rows = db.execute(
-        """
+        text("""
         SELECT
             app_name,
             app_bundle_id,
@@ -275,7 +276,7 @@ def generate_recommendations(db: Session, device_id: str, client_id: str) -> int
         FROM app_resource_metrics
         WHERE device_id = :d AND timestamp >= :c
         GROUP BY app_name, app_bundle_id
-        """,
+        """),
         {"d": device_id, "c": cutoff},
     ).fetchall()
 
@@ -318,11 +319,11 @@ def generate_recommendations(db: Session, device_id: str, client_id: str) -> int
 
     # --- Startup rules ---
     startup_row = db.execute(
-        """
+        text("""
         SELECT AVG(boot_to_ready_seconds) AS avg_boot, AVG(total_login_items) AS avg_items
         FROM startup_reports
         WHERE device_id = :d AND created_at >= :c
-        """,
+        """),
         {"d": device_id, "c": cutoff},
     ).fetchone()
 
@@ -341,11 +342,11 @@ def generate_recommendations(db: Session, device_id: str, client_id: str) -> int
     import json as _json
     for priority, category, text, data in recs:
         db.execute(
-            """
+            text("""
             INSERT INTO ai_recommendations
                 (device_id, client_id, recommendation_text, category, priority, supporting_data)
             VALUES (:d, :c, :t, :cat, :pri, :dat::jsonb)
-            """,
+            """),
             {"d": device_id, "c": client_id, "t": text,
              "cat": category, "pri": priority, "dat": _json.dumps(data)},
         )
@@ -357,7 +358,7 @@ def generate_recommendations(db: Session, device_id: str, client_id: str) -> int
 def get_recommendations(db: Session, device_id: str) -> List[dict]:
     """Fetch AI recommendations for a device."""
     result = db.execute(
-        """
+        text("""
         SELECT * FROM ai_recommendations
         WHERE device_id = :device_id
           AND dismissed_at IS NULL
@@ -365,7 +366,7 @@ def get_recommendations(db: Session, device_id: str) -> List[dict]:
             CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
             generated_at DESC
         LIMIT 20
-        """,
+        """),
         {"device_id": device_id},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -375,7 +376,7 @@ def get_fleet_health(db: Session, client_id: str, period_days: int = 7) -> List[
     """All devices aggregated for a client."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
     result = db.execute(
-        """
+        text("""
         SELECT
             device_id,
             AVG(health_score) AS avg_health_score,
@@ -385,7 +386,7 @@ def get_fleet_health(db: Session, client_id: str, period_days: int = 7) -> List[
         WHERE client_id = :client_id AND date >= :cutoff
         GROUP BY device_id
         ORDER BY avg_health_score ASC NULLS LAST
-        """,
+        """),
         {"client_id": client_id, "cutoff": cutoff.date()},
     )
     return [dict(row._mapping) for row in result.fetchall()]
@@ -406,7 +407,7 @@ def delete_device_data(db: Session, device_id: str) -> dict:
     deleted = {}
     for table in tables:
         result = db.execute(
-            f"DELETE FROM {table} WHERE device_id = :device_id",
+            text(f"DELETE FROM {table} WHERE device_id = :device_id"),
             {"device_id": device_id},
         )
         deleted[table] = result.rowcount
