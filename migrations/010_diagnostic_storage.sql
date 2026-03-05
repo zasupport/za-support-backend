@@ -60,6 +60,6 @@ CREATE TABLE IF NOT EXISTS device_metrics (
     malware_findings    INTEGER
 );
 
-SELECT create_hypertable('device_metrics', 'time', if_not_exists => TRUE);
+-- TimescaleDB not available on Render basic plan — device_metrics is a standard table
 
 CREATE INDEX IF NOT EXISTS idx_metrics_serial ON device_metrics(serial, time DESC);
