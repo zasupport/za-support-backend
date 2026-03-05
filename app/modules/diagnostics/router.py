@@ -23,17 +23,25 @@ router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostic_storage"])
 @router.get("/devices", dependencies=[Depends(verify_agent_token)])
 def list_devices(
     client_id: Optional[str] = Query(None),
+    search:    Optional[str] = Query(None, description="Search by serial, hostname, or client_id"),
     is_active: bool = Query(True),
+    per_page:  int  = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """List all registered devices."""
-    q = "SELECT * FROM client_devices WHERE is_active = :active"
-    params = {"active": is_active}
+    """List all registered devices with optional search."""
+    conditions = ["is_active = :active"]
+    params: dict = {"active": is_active}
     if client_id:
-        q += " AND client_id = :client_id"
+        conditions.append("client_id = :client_id")
         params["client_id"] = client_id
-    q += " ORDER BY last_seen DESC"
-    rows = db.execute(text(q), params).fetchall()
+    if search:
+        conditions.append("(serial ILIKE :s OR hostname ILIKE :s OR client_id ILIKE :s)")
+        params["s"] = f"%{search}%"
+    where = " AND ".join(conditions)
+    rows = db.execute(
+        text(f"SELECT * FROM client_devices WHERE {where} ORDER BY last_seen DESC LIMIT :n"),
+        {**params, "n": per_page},
+    ).fetchall()
     return [dict(r._mapping) for r in rows]
 
 

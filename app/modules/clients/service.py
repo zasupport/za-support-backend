@@ -115,10 +115,19 @@ def get_client(db: Session, client_id: str) -> Optional[Client]:
     return db.query(Client).filter(Client.client_id == client_id).first()
 
 
-def list_clients(db: Session, status: Optional[str] = None, page: int = 1, per_page: int = 50) -> dict:
+def list_clients(db: Session, status: Optional[str] = None, search: Optional[str] = None, page: int = 1, per_page: int = 50) -> dict:
     q = db.query(Client)
     if status:
         q = q.filter(Client.status == status)
+    if search:
+        like = f"%{search}%"
+        from sqlalchemy import or_
+        q = q.filter(or_(
+            Client.first_name.ilike(like),
+            Client.last_name.ilike(like),
+            Client.email.ilike(like),
+            Client.client_id.ilike(like),
+        ))
     total = q.count()
     items = q.order_by(Client.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
     return {"data": items, "meta": {"page": page, "per_page": per_page, "total": total}}

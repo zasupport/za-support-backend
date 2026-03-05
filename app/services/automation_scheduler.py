@@ -17,6 +17,7 @@ from app.services.report_generator import generate_all_reports
 from app.services.weekly_digest import run_weekly_digest
 import app.services.isp_outage_notifier  # noqa: F401 — registers isp.outage_detected subscriber
 import app.services.report_delivery      # noqa: F401 — registers diagnostics.upload_received → auto-deliver PDF
+import app.services.post_visit_followup  # noqa: F401 — registers workshop.job_completed → client follow-up email
 from app.services.stale_diagnostic_alerter import run_stale_diagnostic_check
 from app.services.previsit_reminder import run_previsit_reminders
 from app.services.sla_report_scheduler import run_sla_monthly_reports

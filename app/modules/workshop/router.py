@@ -5,7 +5,7 @@ Prefix: /api/v1/workshop
 import logging
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.agent_auth import verify_agent_token
@@ -51,12 +51,23 @@ def get_job(job_ref: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/jobs/{job_ref}/status", response_model=JobOut, dependencies=[Depends(verify_agent_token)])
-def update_status(job_ref: str, update: JobStatusUpdate, db: Session = Depends(get_db)):
-    """Cycle job status: open → in_progress → waiting_parts → completed."""
+def update_status(job_ref: str, update: JobStatusUpdate, background: BackgroundTasks, db: Session = Depends(get_db)):
+    """Cycle job status: open → in_progress → waiting_parts → done."""
+    from app.core.event_bus import emit_event
     job = service.get_job(db, job_ref)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return service.update_job_status(db, job, update)
+    prev_status = job.status
+    updated = service.update_job_status(db, job, update)
+    if update.status == "done" and prev_status != "done":
+        background.add_task(emit_event, "workshop.job_completed", {
+            "job_ref":   updated.job_ref,
+            "client_id": updated.client_id,
+            "serial":    updated.serial,
+            "title":     updated.title,
+            "notes":     updated.notes,
+        })
+    return updated
 
 
 @router.patch("/jobs/{job_ref}", response_model=JobOut, dependencies=[Depends(verify_agent_token)])

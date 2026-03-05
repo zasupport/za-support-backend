@@ -94,6 +94,27 @@ async def on_client_created(payload: dict):
         except Exception as e:
             logger.error(f"Welcome email failed for {client_email}: {e}")
 
+    # Email Courtney the Scout install command for this client
+    scout_subject = f"Scout Install Ready — {client_id}"
+    scout_body = "\n".join([
+        f"New client onboarded: {payload.get('first_name', '')} {payload.get('last_name', '')}",
+        f"Client ID : {client_id}",
+        f"",
+        f"Run this command on their Mac to install and run Scout:",
+        f"",
+        f"  curl -fsSL https://api.zasupport.com/diagnostics/run | bash -s -- --client {client_id}",
+        f"",
+        f"Or copy to USB and run from Finder if no internet access during visit.",
+        f"",
+        f"Site Brief: {DASHBOARD_URL}/{client_id}/brief",
+        f"Morning Brief: https://app.zasupport.com/morning",
+    ])
+    try:
+        send_email(NOTIFY_TO, scout_subject, scout_body)
+        logger.info(f"Scout install command emailed to Courtney for {client_id}")
+    except Exception as e:
+        logger.error(f"Scout install email failed for {client_id}: {e}")
+
     try:
         urgency_tag = " 🚨 *URGENT*" if urgent_flag else ""
         biz_tag = " | 💼 Has business" if business_flag else ""

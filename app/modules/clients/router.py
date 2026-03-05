@@ -125,12 +125,13 @@ def checkin(payload: ClientCheckinPayload, db: Session = Depends(get_db)):
 
 @router.get("", dependencies=[Depends(verify_agent_token)])
 def list_clients(
-    status:   Optional[str] = Query(None, description="Filter by status: new, active, sla, inactive"),
+    status:   Optional[str] = Query(None),
+    search:   Optional[str] = Query(None, description="Search by name, email, or client_id"),
     page:     int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     db:       Session = Depends(get_db),
 ):
-    result = service.list_clients(db, status=status, page=page, per_page=per_page)
+    result = service.list_clients(db, status=status, search=search, page=page, per_page=per_page)
     return {
         "data": [ClientOut.model_validate(c) for c in result["data"]],
         "meta": result["meta"],
@@ -169,6 +170,98 @@ def get_checkins(client_id: str, db: Session = Depends(get_db)):
     if not service.get_client(db, client_id):
         raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
     return service.get_checkins(db, client_id)
+
+
+# ── Client Health Score ───────────────────────────────────────────────────────
+
+@router.get("/{client_id}/health", dependencies=[Depends(verify_agent_token)])
+def client_health(client_id: str, db: Session = Depends(get_db)):
+    """
+    Compute a 0-100 health score for a client based on:
+    - Latest diagnostic risk score (40 pts)
+    - Backup status (20 pts)
+    - Onboarding completion (20 pts)
+    - Days since last scan (20 pts)
+    """
+    from sqlalchemy import text
+    client = service.get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+
+    snap = db.execute(text("""
+        SELECT s.risk_score, s.risk_level, s.scan_date, s.raw_json
+        FROM diagnostic_snapshots s
+        JOIN client_devices d ON d.serial = s.serial
+        WHERE d.client_id = :cid
+        ORDER BY s.scan_date DESC LIMIT 1
+    """), {"cid": client_id}).fetchone()
+
+    tasks = service.get_tasks(db, client_id)
+    total_tasks     = len(tasks)
+    completed_tasks = sum(1 for t in tasks if t.status == "completed")
+
+    # Score components
+    risk_pts    = 0
+    backup_pts  = 0
+    task_pts    = 0
+    scan_pts    = 0
+    days_since  = None
+    risk_level  = None
+
+    if snap:
+        risk_score = snap.risk_score or 0
+        risk_level = snap.risk_level
+        # risk_score 0-10, invert: score 10 = 0 pts, score 0 = 40 pts
+        risk_pts = max(0, int(40 - (risk_score * 4)))
+
+        # Days since scan
+        if snap.scan_date:
+            import pytz
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            scan_dt = snap.scan_date
+            if scan_dt.tzinfo is None:
+                scan_dt = scan_dt.replace(tzinfo=timezone.utc)
+            days_since = (now - scan_dt).days
+            scan_pts = 20 if days_since <= 30 else (10 if days_since <= 60 else 0)
+
+        # Backup check from environment data
+        import json
+        raw = json.loads(snap.raw_json) if isinstance(snap.raw_json, str) else (snap.raw_json or {})
+        env = raw.get("environment", {})
+        tm  = env.get("time_machine", {})
+        ccc = env.get("ccc_backup", {})
+        tm_ok  = (tm.get("status") or "").lower() not in ("not configured", "error", "failed", "never backed up", "")
+        tm_days = tm.get("days_since_backup")
+        tm_recent = tm_ok and (tm_days is None or (isinstance(tm_days, (int, float)) and tm_days <= 7))
+        ccc_ok = (ccc.get("status") or "").lower() not in ("not configured", "error", "failed", "never ran", "")
+        backup_pts = 20 if (tm_recent or ccc_ok) else (10 if tm_ok else 0)
+    else:
+        risk_pts = 0  # No data — unknown risk, score 0
+
+    if total_tasks > 0:
+        task_pts = int(20 * (completed_tasks / total_tasks))
+    else:
+        task_pts = 20  # No tasks = nothing pending
+
+    total = risk_pts + backup_pts + task_pts + scan_pts
+    grade = "A" if total >= 85 else "B" if total >= 70 else "C" if total >= 50 else "D" if total >= 30 else "F"
+
+    return {
+        "client_id":       client_id,
+        "health_score":    total,
+        "grade":           grade,
+        "risk_level":      risk_level,
+        "days_since_scan": days_since,
+        "components": {
+            "risk":     risk_pts,
+            "backup":   backup_pts,
+            "tasks":    task_pts,
+            "freshness": scan_pts,
+        },
+        "tasks_completed": completed_tasks,
+        "tasks_total":     total_tasks,
+    }
 
 
 # ── Client Status Update ──────────────────────────────────────────────────────
