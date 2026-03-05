@@ -2095,13 +2095,14 @@ REC_COUNT=0
 RECS_JSON="["
 
 add_rec() {
-    local SEV="$1"; local TITLE="$2"; local EVIDENCE="$3"; local PRODUCT="$4"; local PRICE="$5"
+    local SEV="$1"; local TITLE="$2"; local EVIDENCE="$3"; local PRODUCT="$4"; local PRICE="$5"; local RISK="${6:-}"
     REC_COUNT=$((REC_COUNT + 1))
     echo "  ${SEV} #${REC_COUNT}: ${TITLE}"
     echo "    Evidence: ${EVIDENCE}"
+    [[ -n "$RISK" ]] && echo "    Risk: ${RISK}"
     echo "    → ${PRODUCT}: ${PRICE}"
     echo ""
-    RECS_JSON="${RECS_JSON}{\"severity\":\"$SEV\",\"title\":\"$(echo "$TITLE" | sed 's/"/\\"/g')\",\"evidence\":\"$(echo "$EVIDENCE" | sed 's/"/\\"/g')\",\"product\":\"$(echo "$PRODUCT" | sed 's/"/\\"/g')\",\"price\":\"$PRICE\"},"
+    RECS_JSON="${RECS_JSON}{\"severity\":\"$SEV\",\"title\":\"$(echo "$TITLE" | sed 's/"/\\"/g')\",\"evidence\":\"$(echo "$EVIDENCE" | sed 's/"/\\"/g')\",\"product\":\"$(echo "$PRODUCT" | sed 's/"/\\"/g')\",\"price\":\"$PRICE\",\"risk_scenario\":\"$(echo "$RISK" | sed 's/"/\\"/g')\"},"
 }
 
 # --- BACKUP TRIGGERS ---
@@ -2110,7 +2111,8 @@ if [[ "$TM_DEST" -eq 0 ]]; then
     USED_GB=$(df -g / 2>/dev/null | awk 'NR==2{print $3}')
     add_rec "CRITICAL" "No backup configured" \
         "No Time Machine destination. No backup agent detected. ${USED_GB:-Unknown} GB at risk of total loss." \
-        "Automated backup configuration" "Included"
+        "Automated backup configuration" "Included" \
+        "If the hard drive fails tomorrow — and drives of this age do fail without warning — every document, email attachment, photo, and file is permanently gone. Forensic data recovery starts at R 8,000 with no guarantee of success. Ransomware attacks, which encrypt all files and demand payment, are now the most common cyber attack in South Africa. Without a backup, the only options are to pay the ransom (with no guarantee of file return) or accept total data loss."
 fi
 
 LAST_TM_EPOCH=$(defaults read /Library/Preferences/com.apple.TimeMachine.plist Destinations 2>/dev/null | grep -A2 "SnapshotDates" | grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}" | tail -1)
@@ -2119,7 +2121,8 @@ if [[ -n "$LAST_TM_EPOCH" ]]; then
     if [[ "$DAYS_SINCE" -gt 30 ]]; then
         add_rec "HIGH" "Backup is ${DAYS_SINCE} days old" \
             "Last backup: ${LAST_TM_EPOCH}. ${DAYS_SINCE} days of work would be lost if the drive failed today." \
-            "Automated backup configuration" "Included"
+            "Automated backup configuration" "Included" \
+            "If the hard drive fails — and drives of this age do fail without warning — every document, email, photo, and file created since the last backup is permanently gone. There is no recovery service that can guarantee retrieval from a failed drive. Ransomware attacks, which encrypt all files and demand payment, are now the most common cyber attack in South Africa. Without a current backup, the only options are to pay the ransom or accept total data loss."
     fi
 fi
 
@@ -2129,15 +2132,15 @@ if [[ -n "$HEALTH" && "$HEALTH" != "N/A" ]]; then
     if [[ "$HEALTH_INT" -lt 80 ]]; then
         add_rec "CRITICAL" "Battery needs replacement" \
             "Battery health: ${HEALTH}%, ${CYCLE} cycles. Condition: ${BATT_CONDITION}. Design: ${DESIGN_CAP}mAh, Current max: ${MAX_CAP}mAh." \
-            "Battery Replacement" "R 1,899–R 3,499"
+            "Battery Replacement" "R 1,899–R 3,499" ""
     elif [[ "$HEALTH_INT" -lt 85 ]]; then
         add_rec "HIGH" "Battery health declining — approaching service threshold" \
             "Battery health: ${HEALTH}% (Apple service threshold: 80%). ${CYCLE} cycles. Condition: ${BATT_CONDITION}." \
-            "Battery Replacement (preventive)" "R 1,899–R 3,499"
+            "Battery Replacement (preventive)" "R 1,899–R 3,499" ""
     elif [[ "$HEALTH_INT" -lt 90 ]]; then
         add_rec "MEDIUM" "Battery showing wear" \
             "Battery health: ${HEALTH}%, ${CYCLE} cycles. Monitor for further degradation." \
-            "$(echo "$PRICE_MAINTENANCE" | cut -d'|' -f1)" "$(echo "$PRICE_MAINTENANCE" | cut -d'|' -f2)"
+            "$(echo "$PRICE_MAINTENANCE" | cut -d'|' -f1)" "$(echo "$PRICE_MAINTENANCE" | cut -d'|' -f2)" ""
     fi
 fi
 
@@ -2146,11 +2149,11 @@ if [[ -n "$DISK_USED_PCT" ]]; then
     if [[ "$DISK_USED_PCT" -gt 90 ]]; then
         add_rec "CRITICAL" "Boot disk critically full" \
             "Disk ${DISK_USED_PCT}% full (${DISK_FREE_GB} GB free). macOS requires 15-20% free. Updates will fail, performance severely degraded." \
-            "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f1) + External SSD" "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f2) + SSD from R 1,499"
+            "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f1) + External SSD" "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f2) + SSD from R 1,499" ""
     elif [[ "$DISK_USED_PCT" -gt 85 ]]; then
         add_rec "HIGH" "Boot disk running low" \
             "Disk ${DISK_USED_PCT}% full (${DISK_FREE_GB} GB free). Approaching threshold for performance degradation." \
-            "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f1)" "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f2)"
+            "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f1)" "$(echo "$PRICE_PERFORMANCE_OPT" | cut -d'|' -f2)" ""
     fi
 fi
 
@@ -2175,38 +2178,51 @@ fi
 [[ -z "$PWMGR_FOUND" ]] && SECURITY_ISSUES="${SECURITY_ISSUES}No password manager detected. "
 [[ "${TRIM_DISABLED:-NO}" == "YES" ]] && SECURITY_ISSUES="${SECURITY_ISSUES}TRIM not enabled. "
 
+SECURITY_RISK_SCENARIO=""
+[[ "$FV_CHECK" -gt 0 ]] && SECURITY_RISK_SCENARIO="${SECURITY_RISK_SCENARIO}FileVault off: If this MacBook is stolen, every file — documents, emails, saved passwords, photos — is readable by anyone without needing your password. They simply remove the drive and connect it to another computer. No technical skill is required. "
+[[ "$FW_CHECK" -gt 0 ]] && SECURITY_RISK_SCENARIO="${SECURITY_RISK_SCENARIO}Firewall disabled: On any shared Wi-Fi — a coffee shop, hotel, or home network with guests — another device on the same network can attempt to connect to this Mac. With the firewall off, any application listening for connections is exposed. "
+[[ -z "$PWMGR_FOUND" ]] && SECURITY_RISK_SCENARIO="${SECURITY_RISK_SCENARIO}No password manager: Without a password manager, most people reuse the same 2-3 passwords. When one service is breached, automated tools try that password on every major service — email, banking, cloud storage. This credential stuffing accounts for over 80% of account takeovers. "
+
 if [[ -n "$SECURITY_ISSUES" ]]; then
     add_rec "HIGH" "Security configuration required" \
         "$SECURITY_ISSUES Covers FileVault, firewall, stealth mode, password manager setup, startup review, TRIM, and disk optimisation." \
-        "Security Configuration" "R 899"
+        "Security Configuration" "R 899" \
+        "$SECURITY_RISK_SCENARIO"
 fi
 
 # --- PERFORMANCE TRIGGERS ---
 PERF_ISSUES=""
+PERF_RISK_SCENARIO=""
 SWAP_USED=$(sysctl vm.swapusage 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /used/) print $(i+2)}' | tr -d 'M.' | head -1)
-[[ -n "$SWAP_USED" && "${SWAP_USED:-0}" -gt 4000 ]] && \
+if [[ -n "$SWAP_USED" && "${SWAP_USED:-0}" -gt 4000 ]]; then
     PERF_ISSUES="${PERF_ISSUES}Excessive swap: $(echo "scale=1; ${SWAP_USED:-0} / 1024" | bc 2>/dev/null || echo "$SWAP_USED")GB. "
-[[ -n "$TOTAL_PROCS" && "${TOTAL_PROCS:-0}" -gt 350 ]] && \
+    PERF_RISK_SCENARIO="${PERF_RISK_SCENARIO}Excessive swap: The system is using the hard drive as temporary memory because RAM is insufficient for the current workload. This makes everything slower — applications take longer to switch, files take longer to open, and the system may freeze when memory pressure spikes. On an older machine, accelerated drive wear from swap usage increases the risk of sudden drive failure. "
+fi
+if [[ -n "$TOTAL_PROCS" && "${TOTAL_PROCS:-0}" -gt 350 ]]; then
     PERF_ISSUES="${PERF_ISSUES}High process count: ${TOTAL_PROCS}. "
+    PERF_RISK_SCENARIO="${PERF_RISK_SCENARIO}High process count: ${TOTAL_PROCS} processes running in the background, each consuming memory and CPU. On a machine already under memory pressure, every unnecessary process pushes more data to swap and slows everything down further. Some may be forgotten installers, updaters, or services that are no longer needed. "
+fi
 
 if [[ -n "$PERF_ISSUES" ]]; then
     add_rec "MEDIUM" "Mail/application performance investigation" \
         "$PERF_ISSUES Performance investigation and optimisation included as part of the diagnostic service." \
-        "Mail/application performance investigation" "Included"
+        "Mail/application performance investigation" "Included" \
+        "$PERF_RISK_SCENARIO"
 fi
 
 # --- macOS UPGRADE TRIGGER (2012–2017 Intel Macs not yet on Ventura) ---
 if [[ "$CHIP_TYPE" == "INTEL" && "${MACOS_MAJOR:-0}" -lt 13 ]]; then
     add_rec "MEDIUM" "macOS upgrade to Ventura available" \
         "This Intel Mac is running macOS $(sw_vers -productVersion 2>/dev/null || echo "< 13"). Ventura (macOS 13) provides improved security, performance, and continued software compatibility." \
-        "macOS upgrade to Ventura" "R 1,799"
+        "macOS upgrade to Ventura" "R 1,799" \
+        "This version of macOS has not received a security update since 2022. Every vulnerability discovered since then is publicly documented — meaning attackers know exactly how to exploit this system. The existing security software can block known malware, but cannot fix vulnerabilities in the operating system itself. A single visit to a compromised website, a malicious email attachment, or a targeted attack can exploit these known weaknesses. The device is effectively running with unlocked doors that cannot be locked without an OS upgrade."
 fi
 
 # --- THERMAL TRIGGERS ---
 if [[ "${PANIC_COUNT:-0}" -gt 0 ]]; then
     add_rec "CRITICAL" "${PANIC_COUNT} kernel panics found" \
         "Kernel panics indicate hardware or driver-level failures. Immediate investigation required." \
-        "Hardware Diagnostic + Repair" "$(echo "$PRICE_HOURLY" | cut -d'|' -f2)"
+        "Hardware Diagnostic + Repair" "$(echo "$PRICE_HOURLY" | cut -d'|' -f2)" ""
 fi
 
 # --- LOAD SHEDDING / UPS TRIGGER ---
@@ -2214,7 +2230,7 @@ UNSAFE_SHUTDOWNS=$(timeout 30 system_profiler SPNVMeDataType 2>/dev/null | grep 
 if [[ "${UNSAFE_SHUTDOWNS:-0}" -gt 20 ]]; then
     add_rec "HIGH" "${UNSAFE_SHUTDOWNS} unsafe shutdowns recorded" \
         "Each unsafe shutdown risks data corruption. In South Africa, this typically means load shedding without a UPS." \
-        "UPS Power Protection" "R 2,499–R 4,999"
+        "UPS Power Protection" "R 2,499–R 4,999" ""
 fi
 
 # --- MONITORING TRIGGER ---
@@ -2223,11 +2239,11 @@ if [[ "$HC_AGENT" -eq 0 ]]; then
     if [[ "$REC_COUNT" -gt 3 ]]; then
         add_rec "HIGH" "No monitoring — ${REC_COUNT} issues found in this diagnostic" \
             "This diagnostic found ${REC_COUNT} issues. Without ongoing monitoring, these patterns repeat." \
-            "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f1)" "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f2)"
+            "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f1)" "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f2)" ""
     else
         add_rec "MEDIUM" "No continuous monitoring installed" \
             "No ZA Support monitoring agent detected. Proactive monitoring catches problems early, reducing repair costs." \
-            "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f1)" "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f2)"
+            "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f1)" "$(echo "$PRICE_HEALTH_CHECK" | cut -d'|' -f2)" ""
     fi
 fi
 
