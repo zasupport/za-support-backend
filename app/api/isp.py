@@ -251,6 +251,33 @@ def get_connectivity_history(
     )
 
 
+# ── Status (simple list — used by dashboard frontend) ────────
+
+@router.get("/status")
+def isp_status(
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Flat ISP status list — one entry per active provider."""
+    providers = db.query(ISPProvider).filter(ISPProvider.is_active == True).order_by(ISPProvider.name).all()
+    result = []
+    for p in providers:
+        recent = (
+            db.query(ISPStatusCheck)
+            .filter(ISPStatusCheck.provider_id == p.id)
+            .order_by(ISPStatusCheck.timestamp.desc())
+            .first()
+        )
+        result.append({
+            "isp_name": p.name,
+            "slug": p.slug,
+            "status": p.current_status,
+            "last_checked": recent.timestamp.isoformat() if recent else None,
+            "latency_ms": getattr(recent, "latency_ms", None) if recent else None,
+        })
+    return result
+
+
 # ── Dashboard ────────────────────────────────────────────────
 
 @router.get("/dashboard", response_model=ISPDashboard)
