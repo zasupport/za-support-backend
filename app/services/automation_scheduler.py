@@ -3,7 +3,7 @@ Automation scheduler — manages all scheduled jobs for the automation layer.
 Registers jobs in the database for visibility via /api/v1/system/jobs.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.services import event_bus, notification_engine
 from app.services.patch_monitor import check_all_devices as patch_check
 from app.services.backup_monitor import check_all_devices as backup_check
 from app.services.report_generator import generate_all_reports
+from app.services.weekly_digest import run_weekly_digest
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,14 @@ _scheduler: BackgroundScheduler = None
 
 # Job definitions: (job_id, name, func, trigger_kwargs)
 JOB_DEFS = [
-    ("patch_monitor", "macOS Patch Monitor", patch_check, {"trigger": "interval", "hours": 6}),
-    ("backup_monitor", "Backup Health Monitor", backup_check, {"trigger": "interval", "hours": 6}),
-    ("report_generator", "Device Report Generator", generate_all_reports, {"trigger": "cron", "hour": 6, "minute": 0}),
-    ("stale_device_check", "Stale Device Detector", None, {"trigger": "interval", "hours": 1}),
-    ("security_posture_scan", "Security Posture Scanner", None, {"trigger": "interval", "hours": 12}),
-    ("event_cleanup", "Event Log Cleanup (90d)", None, {"trigger": "cron", "day": 1, "hour": 3}),
-    ("heartbeat_rollup", "Heartbeat Data Rollup", None, {"trigger": "cron", "hour": 2, "minute": 0}),
+    ("patch_monitor",    "macOS Patch Monitor",           patch_check,        {"trigger": "interval", "hours": 6}),
+    ("backup_monitor",   "Backup Health Monitor",          backup_check,       {"trigger": "interval", "hours": 6}),
+    ("report_generator", "Device Report Generator",        generate_all_reports, {"trigger": "cron", "hour": 6, "minute": 0}),
+    ("weekly_digest",    "Weekly Operations Digest",       run_weekly_digest,  {"trigger": "cron", "day_of_week": "mon", "hour": 7, "minute": 0}),
+    ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
+    ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
+    ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),
+    ("heartbeat_rollup", "Heartbeat Data Rollup",          None, {"trigger": "cron", "hour": 2, "minute": 0}),
 ]
 
 
@@ -41,7 +43,11 @@ def _run_job(job_id: str, func):
             job.run_count = (job.run_count or 0) + 1
 
         if func:
-            func(db)
+            import inspect
+            if inspect.signature(func).parameters:
+                func(db)
+            else:
+                func()  # no-arg functions (e.g. weekly_digest)
 
         if job:
             job.last_status = "success"
@@ -77,7 +83,7 @@ def _run_job(job_id: str, func):
 def _stale_device_check(db: Session):
     """Flag devices not seen in 24 hours."""
     from app.models.models import Device
-    threshold = datetime.now(timezone.utc) - __import__("datetime").timedelta(hours=24)
+    threshold = datetime.now(timezone.utc) - timedelta(hours=24)
     stale = db.query(Device).filter(
         Device.is_active == True,
         Device.last_seen < threshold,
@@ -131,7 +137,7 @@ def _security_posture_scan(db: Session):
 def _event_cleanup(db: Session):
     """Remove system events older than 90 days."""
     from app.models.models import SystemEvent
-    cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(days=90)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
     deleted = db.query(SystemEvent).filter(SystemEvent.created_at < cutoff).delete()
     logger.info(f"[EventCleanup] Removed {deleted} events older than 90 days.")
 
@@ -145,7 +151,7 @@ def _heartbeat_rollup(db: Session):
     from app.models.models import AgentHeartbeatRecord
     from sqlalchemy import text
 
-    cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(hours=48)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
 
     # Find serials with old data
     serials = db.execute(
