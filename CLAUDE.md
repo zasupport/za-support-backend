@@ -107,6 +107,7 @@ main.py             ← App entry point, all routers registered
 | 008_breach_scanner.sql | breach_consent, scan_sessions, scan_findings, etc. | ✓ applied |
 | 009_forensics.sql | forensic_investigations, forensic_findings, forensic_audit_log | ✓ applied |
 | 010_diagnostic_storage.sql | client_devices, diagnostic_snapshots, device_metrics | ✓ applied |
+| 011_clients.sql | clients, client_setup, client_onboarding_tasks, client_checkins | ⚠ pending — auto-runs on next Render deploy via migrate.py |
 
 ---
 
@@ -117,6 +118,7 @@ DATABASE_URL                    PostgreSQL connection string
 REDIS_URL                       Redis connection string
 AGENT_AUTH_TOKEN                Primary agent auth bearer token
 AGENT_AUTH_TOKEN_OLD            Rotation fallback (empty = disabled)
+FORMBRICKS_WEBHOOK_SECRET       HMAC secret for Formbricks webhook verification (set after creating form)
 ISP_MONITOR_STATUS_PAGE_CHECK_INTERVAL=300
 ISP_MONITOR_AGENT_HEARTBEAT_TIMEOUT=180
 ISP_MONITOR_OUTAGE_CONFIRMATION_THRESHOLD=3
@@ -154,19 +156,20 @@ NETWORKING_INTEGRATIONS_ENABLED=false
 - [x] Forensics — app/modules/forensics/ (30+ tools, POPIA consent gate, chain of custody)
 - [x] ISP Networking Integrations — isp_outage_monitor/ (Cloudflare Radar, IODA, RIPE Atlas, BGP, webhooks)
 - [x] Diagnostic Storage — app/modules/diagnostics/ (device registry, snapshots, time-series metrics)
+- [x] Clients — app/modules/clients/ (intake form, Formbricks webhooks, task checklists, check-ins)
+- [x] migrate.py — auto-runs all 0*.sql migrations on every Render deploy (idempotent)
+- [x] deploy.sh — one-command deploy (git push → Render auto-deploys + runs migrations)
 
 ---
 
 ## WHAT IS PENDING (in priority order)
 
-### 1. Run pending DB migrations on Render (BLOCKING for new modules)
-```bash
-psql $DATABASE_URL < migrations/008_breach_scanner.sql
-psql $DATABASE_URL < migrations/009_forensics.sql
-psql $DATABASE_URL < migrations/010_diagnostic_storage.sql
-```
+### 1. Set FORMBRICKS_WEBHOOK_SECRET on Render
+- Create forms at formbricks.com (use onboarding-form-spec.md for field structure)
+- Copy webhook secret → set on Render dashboard
+- Update field ID mappings in app/modules/clients/service.py → map_formbricks_intake()
 
-### 2. Set API keys on Render
+### 2. Set API keys on Render (if not yet done)
 - VIRUSTOTAL_API_KEY
 - ABUSEIPDB_API_KEY
 - CLOUDFLARE_RADAR_TOKEN (optional)

@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import logging
 from typing import Optional, List
 
@@ -33,7 +34,7 @@ def _verify_formbricks_signature(request: Request, body: bytes) -> bool:
         logger.warning("FORMBRICKS_WEBHOOK_SECRET not set — skipping signature verification")
         return True
     sig = request.headers.get("x-formbricks-signature-256", "")
-    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    expected = "sha256=" + hmac.new(key=secret.encode(), msg=body, digestmod=hashlib.sha256).hexdigest()
     return hmac.compare_digest(sig, expected)
 
 
@@ -49,7 +50,7 @@ async def formbricks_intake_webhook(request: Request, background: BackgroundTask
     if not _verify_formbricks_signature(request, body):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    raw = await request.json() if not body else __import__("json").loads(body)
+    raw = json.loads(body)
 
     # Only process on final submission
     event = raw.get("event", "")
@@ -80,7 +81,7 @@ async def formbricks_checkin_webhook(request: Request, db: Session = Depends(get
     if not _verify_formbricks_signature(request, body):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    raw = __import__("json").loads(body)
+    raw = json.loads(body)
 
     event = raw.get("event", "")
     if event not in ("responseCreated", "responseFinished", "responseUpdated"):
