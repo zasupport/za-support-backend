@@ -179,7 +179,7 @@ async def list_device_diagnostics(
 
 # ---------- Get single diagnostic ----------
 
-@router.get("/{diagnostic_id}", response_model=DiagnosticResponse)
+@router.get("/report/{diagnostic_id}", response_model=DiagnosticResponse)
 async def get_diagnostic(
     diagnostic_id: int,
     db: Session = Depends(get_db),
