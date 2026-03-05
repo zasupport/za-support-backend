@@ -2,7 +2,9 @@
 Patch monitor — checks device OS versions against latest known macOS releases.
 Generates events when devices are behind on patches.
 """
+import json
 import logging
+import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -16,13 +18,54 @@ from app.services.event_bus import publish
 
 logger = logging.getLogger(__name__)
 
-# Known latest macOS versions (updated manually or via Apple feed)
-LATEST_MACOS = {
+# Fallback versions — auto-updated each run from Apple GDMF API
+_LATEST_MACOS_FALLBACK = {
     "15": "15.3.2",   # Sequoia
     "14": "14.7.4",   # Sonoma
     "13": "13.7.4",   # Ventura
     "12": "12.7.6",   # Monterey
 }
+
+_GDMF_URL = "https://gdmf.apple.com/v2/pmv"
+
+
+def _fetch_apple_versions() -> dict:
+    """Fetch latest macOS versions from Apple's GDMF API.
+    Returns dict of {major: full_version} or fallback on any error.
+    """
+    try:
+        req = urllib.request.Request(
+            _GDMF_URL,
+            headers={"User-Agent": "ZASupport-PatchMonitor/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+
+        versions: dict[str, str] = {}
+        for entry in data.get("PublicAssetSets", {}).get("macOS", []):
+            product = entry.get("ProductVersion", "")
+            if not product:
+                continue
+            major = product.split(".")[0]
+            existing = versions.get(major, "0")
+            # Keep highest version per major
+            if _ver_gt(product, existing):
+                versions[major] = product
+
+        if versions:
+            logger.info(f"[PatchMonitor] GDMF fetch: {versions}")
+            return versions
+    except Exception as e:
+        logger.warning(f"[PatchMonitor] GDMF fetch failed, using fallback: {e}")
+    return _LATEST_MACOS_FALLBACK.copy()
+
+
+def _ver_gt(a: str, b: str) -> bool:
+    """Return True if version a > version b."""
+    try:
+        return [int(x) for x in a.split(".")] > [int(x) for x in b.split(".")]
+    except ValueError:
+        return False
 
 
 def _parse_major(version: str) -> Optional[str]:
@@ -36,6 +79,7 @@ def _parse_major(version: str) -> Optional[str]:
 def check_all_devices(db: Session):
     """Scan all active devices for patch status."""
     logger.info("[PatchMonitor] Starting patch scan...")
+    LATEST_MACOS = _fetch_apple_versions()
     devices = db.query(Device).filter(Device.is_active == True).all()
     events_count = 0
 

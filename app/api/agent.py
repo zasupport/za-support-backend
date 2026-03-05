@@ -112,6 +112,13 @@ async def upload_diagnostic(
     except Exception as e:
         logger.warning(f"Diagnostic storage service error (non-fatal): {e}")
 
+    # Workshop bridge — correlate diagnostic with continuous monitoring data
+    try:
+        from app.services.workshop_bridge import on_diagnostic_upload
+        on_diagnostic_upload(db, report.id)
+    except Exception as e:
+        logger.warning(f"Workshop bridge (non-fatal): {e}")
+
     # Emit event so subscribers (clients, workshop) can react
     try:
         from app.core.event_bus import emit_event
