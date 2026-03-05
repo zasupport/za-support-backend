@@ -4,6 +4,7 @@ Sends Courtney an immediate Slack + email alert when a client's ISP goes down.
 Registered in automation_scheduler.py startup.
 """
 import logging
+from sqlalchemy import text
 from app.core.event_bus import subscribe
 from app.services.notification_engine import send_email, send_slack
 
@@ -85,7 +86,7 @@ async def on_isp_outage(payload: dict):
                 # Find clients whose ISP matches
                 isp_key = isp_name.lower()
                 clients = db.execute(
-                    __import__('sqlalchemy').text(
+                    text(
                         "SELECT first_name, last_name, email FROM client_setup s "
                         "JOIN clients c ON c.client_id = s.client_id "
                         "WHERE LOWER(s.isp) LIKE :isp AND c.status != 'inactive'"
