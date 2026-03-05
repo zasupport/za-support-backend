@@ -62,6 +62,30 @@ class ScannerService:
 
         if self._db:
             await self._scheduler.load_from_db(self._db)
+            # Load active consent records into memory so the gate works across requests
+            try:
+                rows = await self._db.fetch(
+                    """
+                    SELECT client_id, granted_by, granted_by_role, consent_scope, notes
+                    FROM breach_scanner.breach_consent
+                    WHERE status = 'granted'
+                    """
+                )
+                for row in rows:
+                    rec = ConsentRecord(
+                        client_id=row["client_id"],
+                        granted_by=row["granted_by"],
+                        granted_by_role=row["granted_by_role"],
+                        consent_scope=row["consent_scope"],
+                        notes=row.get("notes"),
+                    )
+                    self._consent[rec.client_id] = rec
+                logger.info(
+                    "[breach_scanner] Loaded %d active consent records from DB",
+                    len(self._consent),
+                )
+            except Exception as exc:
+                logger.warning("[breach_scanner] Could not load consents from DB: %s", exc)
 
         health = await self._engine.provider_health()
         return {
@@ -69,6 +93,7 @@ class ScannerService:
             "providers": health,
             "config_warnings": config_warnings,
             "schedules_loaded": len(self._scheduler.get_all_schedules()),
+            "consents_loaded": len(self._consent),
         }
 
     # ── Consent Management ────────────────────────────────────────────

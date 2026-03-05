@@ -249,15 +249,20 @@ class ForensicsService:
 
         critical = sum(1 for f in all_findings if str(f.get("severity", "")).lower() == "critical")
         high     = sum(1 for f in all_findings if str(f.get("severity", "")).lower() == "high")
+        medium   = sum(1 for f in all_findings if str(f.get("severity", "")).lower() == "medium")
+        low      = sum(1 for f in all_findings if str(f.get("severity", "")).lower() == "low")
+        info     = sum(1 for f in all_findings if str(f.get("severity", "")).lower() == "info")
 
         record.update({
-            "status":         "complete",
-            "completed_at":   datetime.now(timezone.utc).isoformat(),
-            "tasks":          task_results,
-            "findings":       all_findings,
-            "finding_count":  len(all_findings),
-            "critical_count": critical,
-            "high_count":     high,
+            "status":            "complete",
+            "completed_at":      datetime.now(timezone.utc).isoformat(),
+            "tasks":             task_results,
+            "findings":          all_findings,
+            "findings_critical": critical,
+            "findings_high":     high,
+            "findings_medium":   medium,
+            "findings_low":      low,
+            "findings_info":     info,
         })
 
         if self.db:
@@ -265,29 +270,35 @@ class ForensicsService:
                 """
                 UPDATE forensic_investigations
                 SET status='complete'::investigation_status, completed_at=NOW(),
-                    finding_count=:fc, critical_count=:cc, high_count=:hc
+                    findings_critical=:cc, findings_high=:hc,
+                    findings_medium=:mc, findings_low=:lc, findings_info=:ic
                 WHERE id=:id
                 """,
-                {"id": investigation_id, "fc": len(all_findings), "cc": critical, "hc": high},
+                {
+                    "id": investigation_id,
+                    "cc": critical, "hc": high,
+                    "mc": medium,   "lc": low, "ic": info,
+                },
             )
             for f in all_findings:
                 self.db.execute(
                     """
                     INSERT INTO forensic_findings
-                        (investigation_id, tool_id, finding_type, severity,
-                         description, artifact_path, raw_data)
+                        (investigation_id, tool_id, severity,
+                         category, title, detail, raw_evidence, source_file)
                     VALUES
-                        (:inv, :tool, :ftype, :sev::finding_severity,
-                         :desc, :artifact, :raw::jsonb)
+                        (:inv, :tool, :sev::finding_severity,
+                         :cat, :title, :detail, :raw, :src)
                     """,
                     {
-                        "inv":      investigation_id,
-                        "tool":     f.get("tool_id", "unknown"),
-                        "ftype":    f.get("type", "indicator"),
-                        "sev":      str(f.get("severity", "info")).lower(),
-                        "desc":     f.get("description", ""),
-                        "artifact": f.get("artifact_path"),
-                        "raw":      json.dumps(f),
+                        "inv":    investigation_id,
+                        "tool":   f.get("tool_id", "unknown"),
+                        "sev":    str(f.get("severity", "info")).lower(),
+                        "cat":    f.get("category", f.get("type", "indicator")),
+                        "title":  f.get("title", f.get("type", "Indicator").replace("_", " ").title()),
+                        "detail": f.get("description", f.get("detail", "")),
+                        "raw":    json.dumps(f),
+                        "src":    f.get("source_file") or f.get("artifact_path"),
                     },
                 )
             self.db.commit()
@@ -432,14 +443,19 @@ class ForensicsService:
         if rec.get("status") in ("complete", "cancelled"):
             raise ValueError(f"Cannot cancel investigation in state '{rec['status']}'.")
 
-        rec["status"]       = "cancelled"
-        rec["cancelled_at"] = datetime.now(timezone.utc).isoformat()
-        rec["cancel_reason"] = reason
+        rec["status"]               = "cancelled"
+        rec["cancelled_at"]         = datetime.now(timezone.utc).isoformat()
+        rec["cancellation_reason"]  = reason
 
         if self.db:
             self.db.execute(
-                "UPDATE forensic_investigations SET status='cancelled'::investigation_status WHERE id=:id",
-                {"id": investigation_id},
+                """
+                UPDATE forensic_investigations
+                SET status='cancelled'::investigation_status,
+                    cancellation_reason=:reason
+                WHERE id=:id
+                """,
+                {"id": investigation_id, "reason": reason},
             )
             self.db.commit()
 
@@ -485,18 +501,10 @@ class ForensicsService:
         # Write PDF report
         _generate_pdf_report(rec, report_data, pdf_path)
 
-        # Store report paths in record
+        # Store report paths in record (local cache only — no report_generated_at column in schema)
         rec["report_pdf"]  = pdf_path
         rec["report_json"] = json_path
-        rec["report_generated_at"] = datetime.now(timezone.utc).isoformat()
         self._save_local(investigation_id, rec)
-
-        if self.db:
-            self.db.execute(
-                "UPDATE forensic_investigations SET report_generated_at=NOW() WHERE id=:id",
-                {"id": investigation_id},
-            )
-            self.db.commit()
 
         return {"pdf": pdf_path, "json": json_path}
 
