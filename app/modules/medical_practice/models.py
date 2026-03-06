@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, Integer, DateTime, JSON, Numeric
+from sqlalchemy import Column, String, Text, Integer, DateTime, JSON, Numeric, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -31,7 +31,7 @@ class MedicalAssessment(Base):
     __tablename__ = "medical_assessments"
 
     id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    practice_id       = Column(UUID(as_uuid=True), nullable=False)
+    practice_id       = Column(UUID(as_uuid=True), ForeignKey("medical_practices.id", ondelete="CASCADE"), nullable=False)
     assessment_date   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Scored 0-100
@@ -53,5 +53,4 @@ class MedicalAssessment(Base):
     upsell_flags      = Column(JSON, default=list)           # product names triggered by this assessment
     created_at        = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    practice = relationship("MedicalPractice", back_populates="assessments", foreign_keys=[practice_id],
-                            primaryjoin="MedicalAssessment.practice_id == MedicalPractice.id")
+    practice = relationship("MedicalPractice", back_populates="assessments")
