@@ -12,7 +12,6 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session_factory
-from app.services.event_bus import emit_event
 
 logger = logging.getLogger(__name__)
 
