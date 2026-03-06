@@ -133,21 +133,123 @@ def get_summary(db: Session) -> dict:
 # ── Scheduler function ─────────────────────────────────────────────────────────
 
 def generate_all_monthly_reports(db: Session) -> int:
-    """Placeholder called by scheduler on 1st of month.
-    Logs which clients need reports; actual PDF generation is a separate process."""
+    """Called by scheduler on 1st of month — generates PDFs for all active CyberShield practices."""
+    import calendar, os
+    from sqlalchemy import text
+    from app.modules.cybershield.report_generator import generate_cybershield_pdf
+
     now = datetime.now(timezone.utc)
     if now.month == 1:
         month_label = f"December {now.year - 1}"
     else:
-        import calendar
         month_label = f"{calendar.month_name[now.month - 1]} {now.year}"
 
     active = db.query(CyberShieldEnrollment).filter(
         CyberShieldEnrollment.active == True
     ).all()
 
-    logger.info(f"CyberShield: {len(active)} practices due for {month_label} report")
-    for e in active:
-        logger.info(f"  → {e.client_id} ({e.practice_name or 'unknown practice'})")
+    os.makedirs("/tmp/cybershield_reports", exist_ok=True)
+    count = 0
 
-    return len(active)
+    for enrollment in active:
+        try:
+            # Look up client name from clients table
+            row = db.execute(
+                text("SELECT first_name, last_name FROM clients WHERE client_id = :cid"),
+                {"cid": enrollment.client_id},
+            ).fetchone()
+            client_name = f"{row.first_name} {row.last_name}".strip() if row else enrollment.client_id
+
+            # Pull real event counts for this client's devices in the report month
+            prev_month_end = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+            if now.month == 1:
+                prev_month_start = datetime(now.year - 1, 12, 1, tzinfo=timezone.utc)
+            else:
+                prev_month_start = datetime(now.year, now.month - 1, 1, tzinfo=timezone.utc)
+
+            shield_count_row = db.execute(
+                text(
+                    "SELECT COUNT(*) FROM shield_events se "
+                    "JOIN client_devices cd ON cd.serial = se.serial "
+                    "WHERE cd.client_id = :cid "
+                    "AND se.created_at >= :start AND se.created_at < :end"
+                ),
+                {"cid": enrollment.client_id, "start": prev_month_start, "end": prev_month_end},
+            ).scalar()
+
+            isp_count_row = db.execute(
+                text(
+                    "SELECT COUNT(DISTINCT io.id) FROM isp_outages io "
+                    "JOIN isp_providers ip ON ip.id = io.provider_id "
+                    "JOIN client_devices cd ON LOWER(cd.isp_name) LIKE '%' || LOWER(COALESCE(ip.name,'')) || '%' "
+                    "WHERE cd.client_id = :cid "
+                    "AND io.started_at >= :start AND io.started_at < :end"
+                ),
+                {"cid": enrollment.client_id, "start": prev_month_start, "end": prev_month_end},
+            ).scalar()
+
+            pdf_bytes = generate_cybershield_pdf(
+                client_name=client_name,
+                practice_name=enrollment.practice_name or client_name,
+                isp_name=enrollment.isp_name,
+                month_label=month_label,
+                shield_event_count=int(shield_count_row or 0),
+                isp_outage_count=int(isp_count_row or 0),
+            )
+
+            safe = enrollment.client_id.replace("/", "_")
+            filename = f"CyberShield {enrollment.practice_name or client_name} {month_label}.pdf"
+            file_path = f"/tmp/cybershield_reports/{safe}_{month_label.replace(' ', '_')}.pdf"
+
+            with open(file_path, "wb") as f:
+                f.write(pdf_bytes)
+
+            record_report(db, enrollment.client_id, filename, month_label, file_path)
+            count += 1
+            logger.info(f"CyberShield PDF generated for {enrollment.client_id} ({month_label})")
+        except Exception as exc:
+            logger.error(f"CyberShield report failed for {enrollment.client_id}: {exc}")
+
+    logger.info(f"CyberShield: generated {count}/{len(active)} monthly reports for {month_label}")
+    return count
+
+
+def sync_sla_enrollments(db: Session) -> dict:
+    """Auto-enroll all SLA-tier clients who aren't already enrolled."""
+    from sqlalchemy import text
+
+    rows = db.execute(
+        text("SELECT client_id, first_name, last_name FROM clients WHERE status = 'sla'")
+    ).fetchall()
+
+    enrolled_count = 0
+    skipped_count = 0
+
+    for row in rows:
+        if get_enrollment(db, row.client_id):
+            skipped_count += 1
+            continue
+        try:
+            req = EnrollRequest(
+                client_id=row.client_id,
+                practice_name=f"{row.first_name} {row.last_name}".strip(),
+            )
+            enroll(db, req)
+            enrolled_count += 1
+            logger.info(f"CyberShield: auto-enrolled SLA client {row.client_id}")
+        except Exception as exc:
+            logger.warning(f"CyberShield sync: could not enroll {row.client_id}: {exc}")
+
+    return {"enrolled": enrolled_count, "already_enrolled": skipped_count, "total_sla": len(rows)}
+
+
+def get_report_pdf(db: Session, report_id: int) -> tuple[bytes | None, str]:
+    """Return (pdf_bytes, filename) for a stored report, or (None, '') if not found."""
+    row = db.query(CyberShieldReport).filter(CyberShieldReport.id == report_id).first()
+    if not row or not row.file_path:
+        return None, ""
+    try:
+        with open(row.file_path, "rb") as f:
+            return f.read(), row.filename
+    except FileNotFoundError:
+        return None, row.filename
