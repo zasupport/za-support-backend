@@ -144,6 +144,29 @@ class CheckinOut(BaseModel):
         from_attributes = True
 
 
+# ── Client Update (PATCH) ────────────────────────────────────────────────────
+
+class ClientUpdatePayload(BaseModel):
+    """All fields optional — only provided fields are updated."""
+    first_name:                     Optional[str] = None
+    last_name:                      Optional[str] = None
+    email:                          Optional[str] = None
+    phone:                          Optional[str] = None
+    preferred_contact:              Optional[str] = None
+    address:                        Optional[str] = None
+    referral_source:                Optional[str] = None
+    referred_by:                    Optional[str] = None
+    urgency_level:                  Optional[str] = None
+    concerns:                       Optional[List[str]] = None
+    concerns_detail:                Optional[str] = None
+    has_business:                   Optional[bool] = None
+    business_name:                  Optional[str] = None
+    business_type:                  Optional[str] = None
+    business_staff_count:           Optional[str] = None
+    business_device_count:          Optional[str] = None
+    business_health_check_interest: Optional[str] = None
+
+
 # ── Client Notes ──────────────────────────────────────────────────────────────
 
 class NoteIn(BaseModel):

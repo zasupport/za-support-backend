@@ -14,6 +14,7 @@ from app.core.event_bus import emit_event
 from app.modules.clients import service
 from app.modules.clients.schemas import (
     ClientIntakePayload,
+    ClientUpdatePayload,
     ClientCheckinPayload,
     TaskStatusUpdate,
     ClientOut,
@@ -306,6 +307,22 @@ def client_health(client_id: str, db: Session = Depends(get_db)):
 
 
 # ── Client Status Update ──────────────────────────────────────────────────────
+
+@router.patch("/{client_id}", response_model=ClientDetailOut, dependencies=[Depends(verify_agent_token)])
+def update_client(client_id: str, payload: ClientUpdatePayload, db: Session = Depends(get_db)):
+    """Partially update editable client fields. Only provided fields are changed."""
+    client = service.get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+    data = payload.model_dump(exclude_unset=True)
+    for key, val in data.items():
+        if hasattr(client, key):
+            setattr(client, key, val)
+    db.commit()
+    db.refresh(client)
+    logger.info(f"Client {client_id} updated: {list(data.keys())}")
+    return client
+
 
 @router.patch("/{client_id}/status", dependencies=[Depends(verify_agent_token)])
 def update_client_status(
