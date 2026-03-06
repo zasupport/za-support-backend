@@ -4,6 +4,7 @@
 # Runs hourly via com.zasupport.updater LaunchDaemon.
 #
 # Update order:
+#   0. Config health check — auto-repair settings.conf if empty/broken
 #   1. Self  — downloads new update.sh and exec's it if changed
 #   2. Shield Agent  — downloads + restarts LaunchDaemon if changed
 #   3. V3 scripts    — downloads all 15 diagnostic scripts if any changed
@@ -13,6 +14,34 @@
 
 INSTALL_DIR=/usr/local/za-support-diagnostics
 LOG=/var/log/zasupport-update.log
+BOOTSTRAP_URL_FILE="$INSTALL_DIR/config/.bootstrap_url"
+
+# ── 0. Settings.conf health check ────────────────────────────────────────────
+# If settings.conf is empty or missing ZA_AUTH_TOKEN, auto-repair using the
+# bootstrap URL written by the installer (chmod 600, root-only).
+# This handles settings.conf getting wiped, corrupted, or missed on first install.
+if ! grep -q "ZA_AUTH_TOKEN" "$INSTALL_DIR/config/settings.conf" 2>/dev/null; then
+  echo "$(date) [BOOT] settings.conf invalid — attempting auto-repair" >> "$LOG"
+  if [[ -f "$BOOTSTRAP_URL_FILE" ]]; then
+    REPAIR_URL=$(cat "$BOOTSTRAP_URL_FILE" 2>/dev/null)
+    if [[ -n "$REPAIR_URL" ]]; then
+      TMP_REPAIR="$INSTALL_DIR/.repair.$$.sh"
+      if curl -fsSL --max-time 30 "$REPAIR_URL" -o "$TMP_REPAIR" 2>/dev/null; then
+        chmod 755 "$TMP_REPAIR"
+        bash "$TMP_REPAIR" >> "$LOG" 2>&1 || true
+        rm -f "$TMP_REPAIR"
+        echo "$(date) [BOOT] Auto-repair complete" >> "$LOG"
+      else
+        rm -f "$TMP_REPAIR"
+        echo "$(date) [BOOT] Auto-repair download failed — will retry next hour" >> "$LOG"
+        exit 0
+      fi
+    fi
+  else
+    echo "$(date) [BOOT] settings.conf invalid and no .bootstrap_url found — manual repair needed" >> "$LOG"
+    exit 0
+  fi
+fi
 
 source "$INSTALL_DIR/config/settings.conf" 2>/dev/null || exit 0
 
