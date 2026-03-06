@@ -26,6 +26,7 @@ from app.services.sla_report_scheduler import run_sla_monthly_reports
 from app.services.critical_escalation import run_critical_escalation
 from app.services.morning_email import run_morning_email
 from app.services.client_monthly_email import run_monthly_client_emails
+from app.modules.cybershield.service import generate_all_monthly_reports as cybershield_monthly_reports
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ JOB_DEFS = [
     ("sla_monthly_reports",    "SLA Monthly Report Delivery",run_sla_monthly_reports,    {"trigger": "cron", "day": 1, "hour": 6, "minute": 0}),
     ("critical_escalation",    "Critical Job Escalation",    run_critical_escalation,    {"trigger": "cron", "hour": 9, "minute": 0}),
     ("client_monthly_email",   "Monthly Client Health Email", run_monthly_client_emails,  {"trigger": "cron", "day": 1, "hour": 8, "minute": 0}),
+    ("cybershield_monthly",    "CyberShield Monthly Reports", cybershield_monthly_reports, {"trigger": "cron", "day": 1, "hour": 8, "minute": 30}),
     ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
     ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
     ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),
@@ -98,29 +100,59 @@ def _run_job(job_id: str, func):
 
 
 def _stale_device_check(db: Session):
-    """Flag devices not seen in 24 hours."""
+    """Flag devices not seen in 24 hours — checks both Shield Agent and Scout v3 devices."""
     from app.models.models import Device
+    from sqlalchemy import text
+
     threshold = datetime.now(timezone.utc) - timedelta(hours=24)
+    seen_serials: set = set()
+
+    # 1. Shield Agent devices (legacy Device model)
     stale = db.query(Device).filter(
         Device.is_active == True,
         Device.last_seen < threshold,
     ).all()
     for d in stale:
+        serial = d.serial_number or d.machine_id
+        seen_serials.add(serial)
         event_bus.publish(
             db, event_type="device.stale", source="stale_device_check",
             summary=f"{d.hostname or d.machine_id} not seen for 24h+",
             severity="high",
-            device_serial=d.serial_number or d.machine_id,
+            device_serial=serial,
             client_id=d.client_id,
+        )
+
+    # 2. Scout v3 devices (client_devices table)
+    rows = db.execute(
+        text("""
+        SELECT serial, client_id, hostname, last_seen
+        FROM client_devices
+        WHERE is_active = TRUE
+          AND last_seen < :threshold
+        """),
+        {"threshold": threshold},
+    ).fetchall()
+    for row in rows:
+        if row.serial in seen_serials:
+            continue
+        event_bus.publish(
+            db, event_type="device.stale", source="stale_device_check",
+            summary=f"{row.hostname or row.serial} not seen for 24h+",
+            severity="high",
+            device_serial=row.serial,
+            client_id=row.client_id,
         )
 
 
 def _security_posture_scan(db: Session):
-    """Check latest heartbeat security flags for compliance gaps."""
+    """Check security posture for all devices — Shield Agent heartbeats + Scout v3 snapshots."""
     from app.models.models import AgentHeartbeatRecord
-    from sqlalchemy import func, distinct
+    from sqlalchemy import func, text
 
-    # Get latest heartbeat per serial
+    seen_serials: set = set()
+
+    # 1. Shield Agent devices — from latest heartbeat per serial
     subq = db.query(
         AgentHeartbeatRecord.serial,
         func.max(AgentHeartbeatRecord.id).label("max_id"),
@@ -131,6 +163,7 @@ def _security_posture_scan(db: Session):
     ).all()
 
     for hb in latest:
+        seen_serials.add(hb.serial)
         issues = []
         if hb.sip_enabled is False:
             issues.append("SIP disabled")
@@ -148,6 +181,43 @@ def _security_posture_scan(db: Session):
                 severity="high" if "SIP disabled" in issues else "warning",
                 device_serial=hb.serial, client_id=hb.client_id,
                 detail={"issues": issues},
+            )
+
+    # 2. Scout v3 devices — from latest diagnostic_snapshots security section
+    scout_rows = db.execute(
+        text("""
+        SELECT DISTINCT ON (s.serial)
+            s.serial, s.client_id,
+            s.raw_json::json->'system'->>'hostname'  AS hostname,
+            s.raw_json::json->'security'->>'sip'       AS sip,
+            s.raw_json::json->'security'->>'filevault' AS filevault,
+            s.raw_json::json->'security'->>'firewall'  AS firewall,
+            s.raw_json::json->'security'->>'gatekeeper' AS gatekeeper
+        FROM diagnostic_snapshots s
+        ORDER BY s.serial, s.scan_date DESC
+        """)
+    ).fetchall()
+
+    for row in scout_rows:
+        if row.serial in seen_serials:
+            continue  # Already checked via heartbeat
+        issues = []
+        if row.sip and row.sip.upper() in ("DISABLED", "NO", "FALSE", "0"):
+            issues.append("SIP disabled")
+        if row.filevault and row.filevault.upper() in ("OFF", "DISABLED", "NO", "FALSE", "0"):
+            issues.append("FileVault off")
+        if row.firewall and row.firewall.upper() in ("OFF", "DISABLED", "NO", "FALSE", "0"):
+            issues.append("Firewall off")
+        if row.gatekeeper and row.gatekeeper.upper() in ("OFF", "DISABLED", "NO", "FALSE", "0"):
+            issues.append("Gatekeeper off")
+
+        if issues:
+            event_bus.publish(
+                db, event_type="security.posture_gap", source="security_posture_scan",
+                summary=f"{row.hostname or row.serial}: {', '.join(issues)}",
+                severity="high" if "SIP disabled" in issues else "warning",
+                device_serial=row.serial, client_id=row.client_id,
+                detail={"issues": issues, "source": "scout_v3"},
             )
 
 

@@ -1,121 +1,142 @@
 """
-Report generator — produces device health summary reports.
-Generates JSON reports (PDF rendering deferred to frontend/reportlab layer).
+Report generator — daily scheduled job at 06:00.
+Generates CyberPulse PDF for all active/SLA clients with fresh Scout data.
+Stores the result in generated_reports for quick retrieval from the dashboard.
+Does NOT email — email delivery is handled by:
+  - report_delivery.py (on CRITICAL/HIGH diagnostic upload)
+  - sla_report_scheduler.py (monthly, 1st of each month)
 """
-import os
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import text
 
-from app.models.models import Device, HealthData, Alert, WorkshopDiagnostic, PatchStatus, BackupStatus
 from app.services.event_bus import publish
 
 logger = logging.getLogger(__name__)
 
-REPORT_OUTPUT_DIR = os.getenv("HC_REPORT_OUTPUT_DIR", "/var/hc_reports")
-
-
-def generate_device_report(db: Session, serial: str, days: int = 30) -> dict:
-    """Generate a health summary report for a single device."""
-    device = db.query(Device).filter(Device.serial_number == serial).first()
-    if not device:
-        return {"error": f"Device {serial} not found"}
-
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-
-    # Health data aggregation
-    health_agg = db.query(
-        func.avg(HealthData.cpu_percent).label("avg_cpu"),
-        func.avg(HealthData.memory_percent).label("avg_mem"),
-        func.avg(HealthData.disk_percent).label("avg_disk"),
-        func.max(HealthData.cpu_percent).label("max_cpu"),
-        func.max(HealthData.memory_percent).label("max_mem"),
-        func.count(HealthData.id).label("total_records"),
-    ).filter(
-        HealthData.machine_id == device.machine_id,
-        HealthData.timestamp >= since,
-    ).first()
-
-    # Alert counts
-    alert_counts = db.query(
-        Alert.severity, func.count(Alert.id)
-    ).filter(
-        Alert.machine_id == device.machine_id,
-        Alert.timestamp >= since,
-    ).group_by(Alert.severity).all()
-
-    # Patch status
-    patch = db.query(PatchStatus).filter(
-        PatchStatus.device_serial == serial
-    ).first()
-
-    # Backup status
-    backup = db.query(BackupStatus).filter(
-        BackupStatus.device_serial == serial
-    ).first()
-
-    report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "period_days": days,
-        "device": {
-            "serial": serial,
-            "hostname": device.hostname,
-            "model": device.model_identifier,
-            "os_version": device.os_version,
-            "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-        },
-        "health": {
-            "avg_cpu": round(health_agg.avg_cpu, 1) if health_agg.avg_cpu else None,
-            "avg_memory": round(health_agg.avg_mem, 1) if health_agg.avg_mem else None,
-            "avg_disk": round(health_agg.avg_disk, 1) if health_agg.avg_disk else None,
-            "max_cpu": round(health_agg.max_cpu, 1) if health_agg.max_cpu else None,
-            "max_memory": round(health_agg.max_mem, 1) if health_agg.max_mem else None,
-            "total_records": health_agg.total_records or 0,
-        },
-        "alerts": {row[0]: row[1] for row in alert_counts},
-        "patch_status": {
-            "current_os": patch.current_os if patch else None,
-            "latest_os": patch.latest_os if patch else None,
-            "days_behind": patch.days_behind if patch else 0,
-        },
-        "backup_status": {
-            "time_machine": backup.time_machine_enabled if backup else None,
-            "last_backup": backup.last_tm_backup.isoformat() if backup and backup.last_tm_backup else None,
-            "no_backup": backup.no_backup if backup else None,
-        },
-    }
-
-    return report
+FRESH_THRESHOLD_DAYS = 7     # Only generate for clients with recent Scout data
+REGEN_COOLDOWN_HOURS = 20    # Skip if a report was generated within last 20h
 
 
 def generate_all_reports(db: Session):
-    """Generate reports for all active devices — scheduled job."""
-    logger.info("[ReportGen] Starting report generation...")
-    devices = db.query(Device).filter(Device.is_active == True).all()
+    """
+    Generate CyberPulse PDFs for all active/SLA clients with recent Scout data.
+    Skips clients with no fresh snapshot or a report generated today.
+    """
+    from app.modules.reports.generator import generate_cyberpulse_pdf
 
-    for device in devices:
-        serial = device.serial_number or device.machine_id
+    logger.info("[ReportGen] Starting daily CyberPulse report generation...")
+
+    cutoff_fresh   = datetime.now(timezone.utc) - timedelta(days=FRESH_THRESHOLD_DAYS)
+    cutoff_regen   = datetime.now(timezone.utc) - timedelta(hours=REGEN_COOLDOWN_HOURS)
+
+    # All active/SLA clients with at least one fresh snapshot
+    rows = db.execute(
+        text("""
+        SELECT DISTINCT ON (c.client_id)
+            c.client_id,
+            c.first_name,
+            c.last_name,
+            c.email,
+            c.status,
+            s.id         AS snapshot_id,
+            s.serial,
+            s.scan_date,
+            s.raw_json,
+            d.hostname
+        FROM clients c
+        JOIN client_devices d ON d.client_id = c.client_id AND d.is_active = TRUE
+        JOIN diagnostic_snapshots s ON s.serial = d.serial
+        WHERE c.status IN ('active', 'sla')
+          AND s.scan_date >= :cutoff_fresh
+        ORDER BY c.client_id, s.scan_date DESC
+        """),
+        {"cutoff_fresh": cutoff_fresh},
+    ).fetchall()
+
+    if not rows:
+        logger.info("[ReportGen] No clients with fresh diagnostic data — nothing to generate.")
+        return
+
+    generated = 0
+    skipped   = 0
+    failed    = 0
+
+    for row in rows:
+        client_id   = row.client_id
+        client_name = f"{row.first_name} {row.last_name}".strip()
+
+        # Skip if a report was already generated recently
+        recent = db.execute(
+            text("""
+            SELECT id FROM generated_reports
+            WHERE client_id = :cid
+              AND generated_at >= :cutoff_regen
+            LIMIT 1
+            """),
+            {"cid": client_id, "cutoff_regen": cutoff_regen},
+        ).fetchone()
+
+        if recent:
+            skipped += 1
+            continue
+
+        raw_payload = {}
         try:
-            report = generate_device_report(db, serial)
-            # Save to disk if output dir exists
-            if os.path.isdir(REPORT_OUTPUT_DIR):
-                filename = f"hc_report_{serial}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
-                filepath = os.path.join(REPORT_OUTPUT_DIR, filename)
-                with open(filepath, "w") as f:
-                    json.dump(report, f, indent=2)
+            raw_payload = json.loads(row.raw_json) if isinstance(row.raw_json, str) else (row.raw_json or {})
+        except Exception:
+            pass
 
-            publish(
-                db, event_type="report.generated", source="report_generator",
-                summary=f"Health report generated for {device.hostname or serial}",
-                severity="info",
-                device_serial=serial, client_id=device.client_id,
+        try:
+            pdf_bytes = generate_cyberpulse_pdf(
+                client_name=client_name,
+                client_id=client_id,
+                hostname=row.hostname or row.serial,
+                serial=row.serial,
+                payload=raw_payload,
+                scan_date=row.scan_date,
+                reason="Automated daily CyberPulse Assessment.",
             )
         except Exception as e:
-            logger.error(f"Report generation failed for {serial}: {e}")
+            logger.error(f"[ReportGen] PDF generation failed for {client_id}: {e}")
+            failed += 1
+            continue
+
+        # Store report log
+        try:
+            date_str = datetime.now(timezone.utc).strftime("%d %m %Y")
+            filename = f"ZA Support CyberPulse {client_name} {date_str}.pdf"
+            db.execute(
+                text("""
+                INSERT INTO generated_reports (client_id, serial, snapshot_id, report_type, filename)
+                VALUES (:client_id, :serial, :snapshot_id, 'cyberpulse', :filename)
+                """),
+                {
+                    "client_id":   client_id,
+                    "serial":      row.serial,
+                    "snapshot_id": row.snapshot_id,
+                    "filename":    filename,
+                },
+            )
+            db.commit()
+        except Exception as e:
+            logger.warning(f"[ReportGen] Failed to log report for {client_id}: {e}")
+            db.rollback()
+
+        publish(
+            db, event_type="report.generated", source="report_generator",
+            summary=f"CyberPulse PDF generated for {client_name}",
+            severity="info",
+            client_id=client_id, device_serial=row.serial,
+        )
+
+        generated += 1
+        logger.info(f"[ReportGen] Generated: {client_name} ({client_id})")
 
     db.commit()
-    logger.info(f"[ReportGen] Generated reports for {len(devices)} devices.")
+    logger.info(
+        f"[ReportGen] Done. Generated: {generated}, Skipped (recent): {skipped}, Failed: {failed}."
+    )
