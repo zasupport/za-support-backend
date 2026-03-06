@@ -4,6 +4,7 @@ GET /api/v1/system/events  — system event log
 GET /api/v1/system/jobs    — scheduled job registry
 GET /api/v1/system/status  — automation layer health
 """
+import os
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,9 +12,17 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from app.core.database import get_db
+from app.core.agent_auth import verify_agent_token
 from app.models.models import SystemEvent, ScheduledJob, NotificationLog
 
 router = APIRouter()
+
+
+@router.get("/agent-token", dependencies=[Depends(verify_agent_token)])
+def get_agent_token():
+    """Return the primary agent auth token — used by the dashboard installer page."""
+    token = os.environ.get("AGENT_AUTH_TOKEN", "")
+    return {"token": token if token else None}
 
 
 @router.get("/events")
