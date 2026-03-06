@@ -87,3 +87,13 @@ def add_line_item(job_ref: str, item: LineItemIn, db: Session = Depends(get_db))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return service.add_line_item(db, job, item)
+
+
+@router.delete("/jobs/{job_ref}/line-items/{item_id}", status_code=204, dependencies=[Depends(verify_agent_token)])
+def delete_line_item(job_ref: str, item_id: int, db: Session = Depends(get_db)):
+    """Remove a line item from a job."""
+    job = service.get_job(db, job_ref)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not service.delete_line_item(db, job, item_id):
+        raise HTTPException(status_code=404, detail="Line item not found")

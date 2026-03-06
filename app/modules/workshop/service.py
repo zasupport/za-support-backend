@@ -189,3 +189,15 @@ def add_line_item(db: Session, job: WorkshopJob, item: LineItemIn) -> WorkshopLi
     db.commit()
     db.refresh(line)
     return line
+
+
+def delete_line_item(db: Session, job: WorkshopJob, item_id: int) -> bool:
+    line = db.query(WorkshopLineItem).filter(
+        WorkshopLineItem.id == item_id,
+        WorkshopLineItem.job_id == job.id,
+    ).first()
+    if not line:
+        return False
+    db.delete(line)
+    db.commit()
+    return True

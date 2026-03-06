@@ -139,6 +139,26 @@ def client_isp_map(db: Session = Depends(get_db)):
     return [dict(r._mapping) for r in rows]
 
 
+# ── Direct Client Create (dashboard quick-add, bypasses Formbricks) ───────────
+
+@router.post("", response_model=ClientDetailOut, dependencies=[Depends(verify_agent_token)])
+def create_client_direct(payload: ClientIntakePayload, background: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Create a client directly from the dashboard (no Formbricks webhook required).
+    Emits client.created event for welcome email + Slack notification.
+    """
+    from app.core.event_bus import emit_event
+    client = service.create_client(db, payload)
+    background.add_task(emit_event, "client.created", {
+        "client_id": client.client_id,
+        "first_name": client.first_name,
+        "last_name": client.last_name,
+        "email": client.email,
+        "status": client.status,
+    })
+    return client
+
+
 # ── Client CRUD ───────────────────────────────────────────────────────────────
 
 @router.get("", dependencies=[Depends(verify_agent_token)])
