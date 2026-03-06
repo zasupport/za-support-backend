@@ -27,6 +27,7 @@ from app.services.critical_escalation import run_critical_escalation
 from app.services.morning_email import run_morning_email
 from app.services.client_monthly_email import run_monthly_client_emails
 from app.modules.cybershield.service import generate_all_monthly_reports as cybershield_monthly_reports
+from app.services.risk_scorer import run_risk_score_computation
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ JOB_DEFS = [
     ("critical_escalation",    "Critical Job Escalation",    run_critical_escalation,    {"trigger": "cron", "hour": 9, "minute": 0}),
     ("client_monthly_email",   "Monthly Client Health Email", run_monthly_client_emails,  {"trigger": "cron", "day": 1, "hour": 8, "minute": 0}),
     ("cybershield_monthly",    "CyberShield Monthly Reports", cybershield_monthly_reports, {"trigger": "cron", "day": 1, "hour": 8, "minute": 30}),
+    ("risk_score_compute",   "Risk Score Auto-Computation", run_risk_score_computation, {"trigger": "cron", "hour": 5, "minute": 0}),
     ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
     ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
     ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),
