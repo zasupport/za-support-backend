@@ -21,6 +21,7 @@ from app.modules.diagnostics.router import router as diagnostic_storage_router
 from app.modules.clients.router import router as clients_router
 from app.modules.workshop.router import router as workshop_router
 from app.modules.workshop import notifications as _workshop_notifications  # registers subscribers
+from app.services import risk_trend_alerter as _risk_trend_alerter  # registers diagnostics.upload_received subscriber
 from app.modules.reports.router import router as reports_router
 from app.modules.cybershield.router import router as cybershield_router
 from app.api.agent_delivery import router as agent_delivery_router

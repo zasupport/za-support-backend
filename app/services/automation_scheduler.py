@@ -31,6 +31,8 @@ from app.modules.cybershield.service import (
     generate_monthly_billing as cybershield_monthly_billing,
 )
 from app.services.risk_scorer import run_risk_score_computation
+import app.services.risk_trend_alerter       # noqa: F401 — registers diagnostics.upload_received → risk trend alert
+from app.services.breach_scanner_scheduler import run_breach_scan
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ JOB_DEFS = [
     ("cybershield_monthly",    "CyberShield Monthly Reports", cybershield_monthly_reports,  {"trigger": "cron", "day": 1, "hour": 8, "minute": 30}),
     ("cybershield_billing",    "CyberShield Monthly Billing",  cybershield_monthly_billing,  {"trigger": "cron", "day": 1, "hour": 8, "minute": 0}),
     ("risk_score_compute",     "Risk Score Auto-Computation",  run_risk_score_computation,   {"trigger": "cron", "hour": 5, "minute": 0}),
+    ("breach_scan_weekly",     "Breach Scanner Weekly Run",    run_breach_scan,              {"trigger": "cron", "day_of_week": "mon", "hour": 5, "minute": 0}),
     ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
     ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
     ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),
