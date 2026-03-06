@@ -139,7 +139,7 @@ def get_check_history(
 
 # ── Outages ──────────────────────────────────────────────────
 
-@router.get("/outages", response_model=List[ISPOutageResponse])
+@router.get("/outages")
 def list_outages(
     provider_id: Optional[int] = None,
     active_only: bool = False,
@@ -148,12 +148,28 @@ def list_outages(
     _: str = Depends(verify_api_key),
 ):
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-    query = db.query(ISPOutage).filter(ISPOutage.started_at >= cutoff)
+    query = db.query(ISPOutage, ISPProvider.name.label("isp_name")).join(
+        ISPProvider, ISPOutage.provider_id == ISPProvider.id, isouter=True
+    ).filter(ISPOutage.started_at >= cutoff)
     if provider_id:
         query = query.filter(ISPOutage.provider_id == provider_id)
     if active_only:
         query = query.filter(ISPOutage.ended_at == None)
-    return query.order_by(ISPOutage.started_at.desc()).all()
+    rows = query.order_by(ISPOutage.started_at.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "provider_id": o.provider_id,
+            "isp_name": isp_name or f"Provider #{o.provider_id}",
+            "started_at": o.started_at.isoformat() if o.started_at else None,
+            "ended_at": o.ended_at.isoformat() if o.ended_at else None,
+            "severity": o.severity,
+            "confirmed": o.confirmed,
+            "description": o.description,
+            "auto_resolved": o.auto_resolved,
+        }
+        for o, isp_name in rows
+    ]
 
 
 @router.get("/outages/current", response_model=List[ISPOutageResponse])
