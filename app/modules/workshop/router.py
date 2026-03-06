@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/workshop", tags=["Workshop"])
 
 
+@router.get("/revenue", dependencies=[Depends(verify_agent_token)])
+def revenue_summary(db: Session = Depends(get_db)):
+    """Revenue analytics — totals from completed jobs and open pipeline value."""
+    return service.get_revenue_summary(db)
+
+
 @router.get("/jobs", response_model=dict, dependencies=[Depends(verify_agent_token)])
 def list_jobs(
     client_id: Optional[str] = Query(None),

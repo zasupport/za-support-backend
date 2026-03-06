@@ -201,3 +201,38 @@ def delete_line_item(db: Session, job: WorkshopJob, item_id: int) -> bool:
     db.delete(line)
     db.commit()
     return True
+
+
+def get_revenue_summary(db: Session) -> dict:
+    """Revenue analytics: totals from completed jobs, pipeline from open jobs."""
+    from sqlalchemy import text
+    row = db.execute(text("""
+        SELECT
+            COUNT(DISTINCT wj.id)                                                AS total_jobs,
+            COUNT(DISTINCT wj.id) FILTER (WHERE wj.status IN ('completed','done'))  AS completed_jobs,
+            COUNT(DISTINCT wj.id) FILTER (WHERE wj.status NOT IN ('completed','done','cancelled')) AS open_jobs,
+            COALESCE(SUM(li.line_total) FILTER (
+                WHERE wj.status IN ('completed','done')
+            ), 0)                                                                AS total_revenue,
+            COALESCE(SUM(li.line_total) FILTER (
+                WHERE wj.status NOT IN ('completed','done','cancelled')
+            ), 0)                                                                AS pipeline_value,
+            COALESCE(SUM(wj.labour_minutes) FILTER (
+                WHERE wj.status IN ('completed','done')
+            ), 0)                                                                AS total_labour_minutes,
+            COALESCE(SUM(li.line_total) FILTER (
+                WHERE wj.status IN ('completed','done')
+                AND wj.completed_at >= date_trunc('month', now())
+            ), 0)                                                                AS revenue_this_month
+        FROM workshop_jobs wj
+        LEFT JOIN workshop_line_items li ON li.job_id = wj.id
+    """)).fetchone()
+    return {
+        "total_jobs":           int(row.total_jobs),
+        "completed_jobs":       int(row.completed_jobs),
+        "open_jobs":            int(row.open_jobs),
+        "total_revenue":        float(row.total_revenue),
+        "pipeline_value":       float(row.pipeline_value),
+        "total_labour_minutes": int(row.total_labour_minutes),
+        "revenue_this_month":   float(row.revenue_this_month),
+    }
