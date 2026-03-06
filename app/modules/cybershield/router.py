@@ -14,7 +14,10 @@ from sqlalchemy import text
 from app.core.agent_auth import verify_agent_token
 from app.core.database import get_db
 from app.modules.cybershield import service
-from app.modules.cybershield.schemas import EnrollRequest, EnrollmentOut, ReportOut
+from app.modules.cybershield.schemas import (
+    EnrollRequest, EnrollmentOut, ReportOut,
+    BillingCreate, BillingStatusUpdate, BillingOut,
+)
 from app.modules.cybershield.report_generator import generate_cybershield_pdf
 
 logger = logging.getLogger(__name__)
@@ -178,3 +181,49 @@ def generate_report(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{dl_name}"'},
     )
+
+
+# ── Billing ────────────────────────────────────────────────────────────────────
+
+@router.get("/billing/summary", dependencies=[Depends(verify_agent_token)])
+def billing_summary(db: Session = Depends(get_db)):
+    """Outstanding, paid this month, overdue count."""
+    return service.get_billing_summary(db)
+
+
+@router.get("/billing", response_model=dict, dependencies=[Depends(verify_agent_token)])
+def list_billing(
+    client_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    result = service.list_billing(db, client_id=client_id, status=status, page=page, per_page=per_page)
+    return {
+        "data": [BillingOut.model_validate(r) for r in result["data"]],
+        "meta": result["meta"],
+    }
+
+
+@router.post("/billing", response_model=BillingOut, dependencies=[Depends(verify_agent_token)])
+def create_billing(data: BillingCreate, db: Session = Depends(get_db)):
+    try:
+        return service.create_billing_record(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.patch("/billing/{billing_id}/status", response_model=BillingOut, dependencies=[Depends(verify_agent_token)])
+def update_billing_status(billing_id: int, update: BillingStatusUpdate, db: Session = Depends(get_db)):
+    row = service.update_billing_status(db, billing_id, update)
+    if not row:
+        raise HTTPException(status_code=404, detail="Billing record not found")
+    return row
+
+
+@router.post("/billing/generate", dependencies=[Depends(verify_agent_token)])
+def generate_billing(db: Session = Depends(get_db)):
+    """Manually trigger billing record generation for the current month (idempotent)."""
+    count = service.generate_monthly_billing(db)
+    return {"created": count}

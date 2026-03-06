@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Boolean, Text, Numeric, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, Text, Numeric, DateTime, Date
 from app.core.database import Base
 
 
@@ -29,3 +29,20 @@ class CyberShieldReport(Base):
     file_path    = Column(Text)
     generated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     created_at   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CyberShieldBilling(Base):
+    __tablename__ = "cybershield_billing"
+
+    id          = Column(Integer, primary_key=True)
+    client_id   = Column(String(100), nullable=False, index=True)
+    month_label = Column(String(20), nullable=False)
+    amount      = Column(Numeric(10, 2), nullable=False, default=1499.00)
+    status      = Column(String(20), nullable=False, default="pending")  # pending|sent|paid|overdue
+    invoice_ref = Column(String(50))
+    due_date    = Column(Date)
+    paid_at     = Column(DateTime(timezone=True))
+    notes       = Column(Text)
+    created_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc))

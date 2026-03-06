@@ -10,8 +10,8 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.modules.cybershield.models import CyberShieldEnrollment, CyberShieldReport
-from app.modules.cybershield.schemas import EnrollRequest
+from app.modules.cybershield.models import CyberShieldEnrollment, CyberShieldReport, CyberShieldBilling
+from app.modules.cybershield.schemas import EnrollRequest, BillingCreate, BillingStatusUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +241,129 @@ def sync_sla_enrollments(db: Session) -> dict:
             logger.warning(f"CyberShield sync: could not enroll {row.client_id}: {exc}")
 
     return {"enrolled": enrolled_count, "already_enrolled": skipped_count, "total_sla": len(rows)}
+
+
+# ── Billing ────────────────────────────────────────────────────────────────────
+
+def list_billing(
+    db: Session,
+    client_id: Optional[str] = None,
+    status: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
+    q = db.query(CyberShieldBilling)
+    if client_id:
+        q = q.filter(CyberShieldBilling.client_id == client_id)
+    if status:
+        q = q.filter(CyberShieldBilling.status == status)
+    total = q.count()
+    rows = q.order_by(CyberShieldBilling.created_at.desc()) \
+             .offset((page - 1) * per_page).limit(per_page).all()
+    return {"data": rows, "meta": {"page": page, "per_page": per_page, "total": total}}
+
+
+def create_billing_record(db: Session, data: BillingCreate) -> CyberShieldBilling:
+    existing = db.query(CyberShieldBilling).filter(
+        CyberShieldBilling.client_id == data.client_id,
+        CyberShieldBilling.month_label == data.month_label,
+    ).first()
+    if existing:
+        raise ValueError(f"Billing record already exists for {data.client_id} / {data.month_label}")
+    row = CyberShieldBilling(
+        client_id=data.client_id,
+        month_label=data.month_label,
+        amount=data.amount,
+        due_date=data.due_date,
+        invoice_ref=data.invoice_ref,
+        notes=data.notes,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    logger.info(f"CyberShield billing: created record for {data.client_id} ({data.month_label})")
+    return row
+
+
+def update_billing_status(db: Session, billing_id: int, update: BillingStatusUpdate) -> Optional[CyberShieldBilling]:
+    row = db.query(CyberShieldBilling).filter(CyberShieldBilling.id == billing_id).first()
+    if not row:
+        return None
+    row.status = update.status
+    if update.invoice_ref:
+        row.invoice_ref = update.invoice_ref
+    if update.notes:
+        row.notes = update.notes
+    if update.status == "paid":
+        row.paid_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def generate_monthly_billing(db: Session) -> int:
+    """
+    Called by scheduler on 1st of month. Creates billing records for all active
+    enrollments for the current billing month. Idempotent — skips if record exists.
+    """
+    import calendar
+    now = datetime.now(timezone.utc)
+    month_label = f"{calendar.month_name[now.month]} {now.year}"
+
+    active = db.query(CyberShieldEnrollment).filter(
+        CyberShieldEnrollment.active == True
+    ).all()
+
+    # Due date = 20th of current month
+    from datetime import date
+    due = date(now.year, now.month, min(20, calendar.monthrange(now.year, now.month)[1]))
+
+    created = 0
+    for enrollment in active:
+        existing = db.query(CyberShieldBilling).filter(
+            CyberShieldBilling.client_id == enrollment.client_id,
+            CyberShieldBilling.month_label == month_label,
+        ).first()
+        if existing:
+            continue
+        row = CyberShieldBilling(
+            client_id=enrollment.client_id,
+            month_label=month_label,
+            amount=enrollment.monthly_fee,
+            due_date=due,
+            status="pending",
+        )
+        db.add(row)
+        created += 1
+
+    db.commit()
+    logger.info(f"CyberShield billing: created {created} records for {month_label}")
+    return created
+
+
+def get_billing_summary(db: Session) -> dict:
+    """Totals: outstanding, paid this month, overdue count."""
+    from sqlalchemy import text
+    import calendar
+    now = datetime.now(timezone.utc)
+    month_label = f"{calendar.month_name[now.month]} {now.year}"
+    row = db.execute(text("""
+        SELECT
+            COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','sent')), 0) AS outstanding,
+            COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0)              AS total_paid_all_time,
+            COALESCE(SUM(amount) FILTER (WHERE status = 'paid'
+                AND month_label = :ml), 0)                                       AS paid_this_month,
+            COUNT(*) FILTER (WHERE status = 'overdue')                           AS overdue_count
+        FROM cybershield_billing
+    """), {"ml": month_label}).fetchone()
+    return {
+        "outstanding":       float(row.outstanding),
+        "total_paid_all_time": float(row.total_paid_all_time),
+        "paid_this_month":   float(row.paid_this_month),
+        "overdue_count":     int(row.overdue_count),
+    }
 
 
 def get_report_pdf(db: Session, report_id: int) -> tuple[bytes | None, str]:
