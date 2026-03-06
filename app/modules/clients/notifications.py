@@ -287,3 +287,22 @@ async def on_status_changed(payload: dict):
             logger.info(f"SLA welcome email sent to {email} ({client_id})")
         except Exception as e:
             logger.error(f"SLA welcome email failed for {client_id}: {e}")
+
+        # Auto-enroll in CyberShield if not already enrolled
+        try:
+            from app.modules.cybershield.service import get_enrollment, enroll
+            from app.modules.cybershield.schemas import EnrollRequest
+            from app.core.database import get_session_factory
+            _db = get_session_factory()()
+            try:
+                if not get_enrollment(_db, client_id):
+                    req = EnrollRequest(
+                        client_id=client_id,
+                        practice_name=f"{payload.get('first_name','')} {payload.get('last_name','')}".strip() or None,
+                    )
+                    enroll(_db, req)
+                    logger.info(f"CyberShield: auto-enrolled SLA client {client_id}")
+            finally:
+                _db.close()
+        except Exception as e:
+            logger.error(f"CyberShield auto-enroll failed for {client_id}: {e}")
