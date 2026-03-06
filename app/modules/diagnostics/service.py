@@ -76,21 +76,84 @@ def upsert_device(db: Session, serial: str, client_id: str, payload: dict) -> in
 
 def compute_risk_score(payload: dict) -> tuple[int, str]:
     """
-    Derive risk_score (0–100) and risk_level from V3's recommendations array.
-    V3 generates recommendations as the authoritative intelligence source.
-    V11 converts them to a numeric score for time-series tracking.
+    Multi-signal risk score (0–100) from V3 diagnostic payload.
 
-    Weights: CRITICAL=30, HIGH=15, MEDIUM=5 (capped at 100)
+    Signal weights:
+      Recommendations:  CRITICAL=30 / HIGH=15 / MEDIUM=5 (from V3 AI analysis)
+      Security controls: FileVault off=20, Firewall off=10, SIP off=15
+      Malware:           any finding=25
+      Threat intel:      any hit=15
+      Battery health:    <30%=10, <50%=5
+      Disk usage:        >90%=10, >80%=5
+    Total capped at 100.
     """
-    recs = payload.get("recommendations", [])
-    if not recs:
-        return 0, "LOW"
-
-    weights = {"CRITICAL": 30, "HIGH": 15, "MEDIUM": 5}
     score = 0
-    for rec in recs:
-        severity = str(rec.get("severity", "")).upper()
-        score += weights.get(severity, 0)
+
+    # ── V3 recommendations (authoritative source) ──────────────────────────
+    rec_weights = {"CRITICAL": 30, "HIGH": 15, "MEDIUM": 5}
+    for rec in payload.get("recommendations", []):
+        score += rec_weights.get(str(rec.get("severity", "")).upper(), 0)
+
+    # ── Security controls ──────────────────────────────────────────────────
+    security = payload.get("security", {})
+
+    def _is_off(d: dict, *keys) -> bool:
+        for k in keys:
+            v = d.get(k)
+            if v is None:
+                continue
+            if isinstance(v, bool):
+                return not v
+            s = str(v).lower()
+            if s in ("false", "0", "off", "disabled", "no", "not enabled"):
+                return True
+        return False
+
+    if _is_off(security, "filevault", "FileVault", "filevault_on"):
+        score += 20
+    if _is_off(security, "firewall", "Firewall", "firewall_on"):
+        score += 10
+    if _is_off(security, "sip", "SIP", "sip_enabled", "system_integrity_protection"):
+        score += 15
+
+    # ── Malware scan ───────────────────────────────────────────────────────
+    malware = payload.get("malware_scan", {})
+    findings = malware.get("findings", [])
+    if findings and len(findings) > 0:
+        score += 25
+    elif malware.get("infections_found") or malware.get("threats_found"):
+        score += 25
+
+    # ── Threat intel ───────────────────────────────────────────────────────
+    threat = payload.get("threat_intel", {})
+    if threat.get("hits") or threat.get("threat_count", 0) > 0:
+        score += 15
+
+    # ── Battery health ─────────────────────────────────────────────────────
+    battery = payload.get("battery", {})
+    try:
+        bh_raw = battery.get("health_percentage") or battery.get("health") or battery.get("battery_health")
+        bh = float(str(bh_raw).replace("%", "").strip()) if bh_raw is not None else None
+        if bh is not None:
+            if bh < 30:
+                score += 10
+            elif bh < 50:
+                score += 5
+    except (TypeError, ValueError):
+        pass
+
+    # ── Disk usage ─────────────────────────────────────────────────────────
+    storage = payload.get("storage", {})
+    try:
+        used_raw = storage.get("used_percentage") or storage.get("used_pct") or storage.get("disk_used_pct")
+        used = float(str(used_raw).replace("%", "").strip()) if used_raw is not None else None
+        if used is not None:
+            if used > 90:
+                score += 10
+            elif used > 80:
+                score += 5
+    except (TypeError, ValueError):
+        pass
 
     score = min(score, 100)
 

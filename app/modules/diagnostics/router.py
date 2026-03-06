@@ -194,6 +194,102 @@ def get_device_trends(serial: str, db: Session = Depends(get_db)):
 # ── Alerts ────────────────────────────────────────────────────────────
 
 
+@router.get("/devices/trend-alerts", dependencies=[Depends(verify_agent_token)])
+def get_trend_alerts(
+    client_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Proactive trend alerts: devices on a deteriorating trajectory.
+    Flags: battery declining >10% / disk growing >15% / risk increasing >20pts in 30 days.
+    Only devices with >=3 metric samples in the last 30 days are evaluated.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # Get first and last reading in 30-day window for each device
+    q = """
+        SELECT
+            serial,
+            FIRST_VALUE(battery_health_pct) OVER w AS battery_start,
+            LAST_VALUE(battery_health_pct)  OVER w AS battery_end,
+            FIRST_VALUE(disk_used_pct)      OVER w AS disk_start,
+            LAST_VALUE(disk_used_pct)       OVER w AS disk_end,
+            FIRST_VALUE(risk_score)         OVER w AS risk_start,
+            LAST_VALUE(risk_score)          OVER w AS risk_end,
+            COUNT(*) OVER (PARTITION BY serial) AS sample_count
+        FROM device_metrics
+        WHERE time >= :cutoff
+        WINDOW w AS (
+            PARTITION BY serial ORDER BY time
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        )
+    """
+    params: dict = {"cutoff": cutoff}
+
+    rows = db.execute(text(q), params).fetchall()
+
+    # Deduplicate (window fn repeats per-row), apply thresholds
+    seen: set = set()
+    alerts = []
+    for r in rows:
+        serial = r.serial
+        if serial in seen:
+            continue
+        seen.add(serial)
+
+        if (r.sample_count or 0) < 3:
+            continue
+
+        alert_types = []
+        battery_drop = None
+        disk_rise = None
+        risk_rise = None
+
+        if r.battery_start is not None and r.battery_end is not None:
+            battery_drop = float(r.battery_start) - float(r.battery_end)
+            if battery_drop > 10:
+                alert_types.append("battery_declining")
+
+        if r.disk_start is not None and r.disk_end is not None:
+            disk_rise = float(r.disk_end) - float(r.disk_start)
+            if disk_rise > 15:
+                alert_types.append("disk_filling")
+
+        if r.risk_start is not None and r.risk_end is not None:
+            risk_rise = float(r.risk_end) - float(r.risk_start)
+            if risk_rise > 20:
+                alert_types.append("risk_escalating")
+
+        if not alert_types:
+            continue
+
+        # Look up device metadata
+        dev = db.execute(
+            text("SELECT hostname, model, client_id FROM client_devices WHERE serial = :s"),
+            {"s": serial},
+        ).fetchone()
+
+        if client_id and (not dev or dev.client_id != client_id):
+            continue
+
+        alerts.append({
+            "serial": serial,
+            "client_id": dev.client_id if dev else None,
+            "hostname": dev.hostname if dev else None,
+            "model": dev.model if dev else None,
+            "alert_types": alert_types,
+            "battery_drop_pct": round(battery_drop, 1) if battery_drop is not None else None,
+            "disk_rise_pct": round(disk_rise, 1) if disk_rise is not None else None,
+            "risk_rise_pts": round(risk_rise, 1) if risk_rise is not None else None,
+            "samples": r.sample_count,
+        })
+
+    # Most severe first
+    priority = {"risk_escalating": 0, "battery_declining": 1, "disk_filling": 2}
+    alerts.sort(key=lambda a: min(priority.get(t, 9) for t in a["alert_types"]))
+    return alerts
+
+
 @router.get("/alerts", dependencies=[Depends(verify_agent_token)])
 def get_at_risk_devices(
     threshold: int = Query(40),
