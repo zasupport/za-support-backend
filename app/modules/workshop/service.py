@@ -176,6 +176,16 @@ def update_job(db: Session, job: WorkshopJob, data: JobUpdate) -> WorkshopJob:
     return job
 
 
+def _recalc_job_total(db: Session, job: WorkshopJob) -> None:
+    """Recompute total_incl_vat from all line items (15% VAT)."""
+    from sqlalchemy import func
+    excl = db.query(func.coalesce(func.sum(WorkshopLineItem.line_total), 0)).filter(
+        WorkshopLineItem.job_id == job.id
+    ).scalar() or 0
+    job.total_incl_vat = round(float(excl) * 1.15, 2)
+    job.updated_at = datetime.now(timezone.utc)
+
+
 def add_line_item(db: Session, job: WorkshopJob, item: LineItemIn) -> WorkshopLineItem:
     line = WorkshopLineItem(
         job_id=job.id,
@@ -186,6 +196,8 @@ def add_line_item(db: Session, job: WorkshopJob, item: LineItemIn) -> WorkshopLi
         item_type=item.item_type,
     )
     db.add(line)
+    db.flush()
+    _recalc_job_total(db, job)
     db.commit()
     db.refresh(line)
     return line
@@ -199,6 +211,8 @@ def delete_line_item(db: Session, job: WorkshopJob, item_id: int) -> bool:
     if not line:
         return False
     db.delete(line)
+    db.flush()
+    _recalc_job_total(db, job)
     db.commit()
     return True
 

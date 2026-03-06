@@ -130,9 +130,8 @@ async def on_isp_outage(payload: dict):
 @subscribe("isp.outage_resolved")
 async def on_isp_resolved(payload: dict):
     """Fires when ISP monitor marks outage as resolved."""
-    isp_name   = payload.get("isp_name", "Unknown ISP")
-    duration   = payload.get("duration_minutes")
-    resolved_at = payload.get("resolved_at", "")
+    isp_name    = payload.get("isp_name", "Unknown ISP")
+    duration    = payload.get("duration_minutes")
 
     duration_note = f" (down for {duration} min)" if duration else ""
 
@@ -142,3 +141,42 @@ async def on_isp_resolved(payload: dict):
         logger.info(f"ISP resolved notification sent: {isp_name}")
     except Exception as e:
         logger.error(f"ISP resolved Slack notification failed: {e}")
+
+    # Email affected clients that service has been restored
+    try:
+        from app.core.database import get_session_factory
+        from sqlalchemy import text
+        db = get_session_factory()()
+        try:
+            isp_key = isp_name.lower().split()[0]
+            clients = db.execute(
+                text(
+                    "SELECT c.first_name, c.email FROM client_setup s "
+                    "JOIN clients c ON c.client_id = s.client_id "
+                    "WHERE LOWER(s.isp) LIKE :isp AND c.status != 'inactive' AND c.email IS NOT NULL"
+                ),
+                {"isp": f"%{isp_key}%"},
+            ).fetchall()
+            for c in clients:
+                subject = f"Internet Service Restored — {isp_name}"
+                body = "\n".join([
+                    f"Hi {c.first_name},",
+                    f"",
+                    f"Good news — {isp_name} service has been restored{duration_note}.",
+                    f"",
+                    f"Your internet connectivity should be back to normal.",
+                    f"If you're still experiencing issues, please reply to this email",
+                    f"or call Courtney on 064 529 5863.",
+                    f"",
+                    f"ZA Support | Practice IT. Perfected.",
+                    f"admin@zasupport.com | 064 529 5863",
+                ])
+                try:
+                    send_email(c.email, subject, body)
+                    logger.info(f"ISP resolved email sent to {c.email}")
+                except Exception as e:
+                    logger.error(f"ISP resolved client email failed for {c.email}: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"ISP resolved client notification failed: {e}")
