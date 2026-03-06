@@ -14,6 +14,7 @@ from sqlalchemy import text
 from app.core.agent_auth import verify_agent_token
 from app.core.database import get_db
 from app.modules.cybershield import service
+from app.modules.cybershield.models import CyberShieldBilling
 from app.modules.cybershield.schemas import (
     EnrollRequest, EnrollmentOut, ReportOut,
     BillingCreate, BillingStatusUpdate, BillingOut,
@@ -222,8 +223,72 @@ def update_billing_status(billing_id: int, update: BillingStatusUpdate, db: Sess
     return row
 
 
+@router.post("/billing/{billing_id}/email-invoice", dependencies=[Depends(verify_agent_token)])
+def email_invoice(billing_id: int, db: Session = Depends(get_db)):
+    """Generate and email the invoice PDF to the client. Marks billing record as sent."""
+    ok = service.email_invoice(db, billing_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Could not send invoice — check client email and enrollment")
+    return {"sent": True}
+
+
 @router.post("/billing/generate", dependencies=[Depends(verify_agent_token)])
 def generate_billing(db: Session = Depends(get_db)):
     """Manually trigger billing record generation for the current month (idempotent)."""
     count = service.generate_monthly_billing(db)
     return {"created": count}
+
+
+@router.get("/billing/{billing_id}/invoice", dependencies=[Depends(verify_agent_token)])
+def download_invoice(billing_id: int, db: Session = Depends(get_db)):
+    """Generate and download a PDF invoice for a billing record."""
+    from app.modules.cybershield.invoice_generator import generate_cybershield_invoice
+    from decimal import Decimal
+
+    billing = db.query(CyberShieldBilling).filter(
+        CyberShieldBilling.id == billing_id
+    ).first()
+    if not billing:
+        raise HTTPException(status_code=404, detail="Billing record not found")
+
+    enrollment = service.get_enrollment(db, billing.client_id)
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+
+    # Resolve client name and email
+    try:
+        client_row = db.execute(
+            text("SELECT first_name, last_name, email FROM clients WHERE client_id = :cid"),
+            {"cid": billing.client_id},
+        ).fetchone()
+        client_name = f"{client_row.first_name} {client_row.last_name}".strip() if client_row else billing.client_id
+        client_email = client_row.email if client_row else None
+    except Exception:
+        client_name = billing.client_id
+        client_email = None
+
+    # Auto-generate invoice ref if not set
+    invoice_ref = billing.invoice_ref or f"CS-{billing.client_id.upper()[:6]}-{billing.month_label.replace(' ', '-').upper()}"
+
+    try:
+        pdf_bytes = generate_cybershield_invoice(
+            client_name=client_name,
+            practice_name=enrollment.practice_name or client_name,
+            client_email=client_email,
+            month_label=billing.month_label,
+            amount_excl=Decimal(str(billing.amount)),
+            invoice_ref=invoice_ref,
+            due_date=billing.due_date,
+            isp_name=enrollment.isp_name,
+        )
+    except Exception as e:
+        logger.error(f"Invoice generation failed for billing {billing_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Invoice generation failed: {e}")
+
+    safe = (enrollment.practice_name or client_name).replace(" ", "_")
+    filename = f"CyberShield_Invoice_{safe}_{billing.month_label.replace(' ', '_')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -366,6 +366,86 @@ def get_billing_summary(db: Session) -> dict:
     }
 
 
+def email_invoice(db: Session, billing_id: int) -> bool:
+    """
+    Generate invoice PDF and email it to the client.
+    Returns True if sent, False on error.
+    """
+    from decimal import Decimal
+    from app.modules.cybershield.invoice_generator import generate_cybershield_invoice
+    from app.services.notification_engine import send_email
+
+    row = db.query(CyberShieldBilling).filter(CyberShieldBilling.id == billing_id).first()
+    if not row:
+        return False
+
+    enrollment = get_enrollment(db, row.client_id)
+    if not enrollment:
+        return False
+
+    from sqlalchemy import text
+    try:
+        client_row = db.execute(
+            text("SELECT first_name, last_name, email FROM clients WHERE client_id = :cid"),
+            {"cid": row.client_id},
+        ).fetchone()
+    except Exception:
+        client_row = None
+
+    client_name  = f"{client_row.first_name} {client_row.last_name}".strip() if client_row else row.client_id
+    client_email = client_row.email if client_row else None
+
+    if not client_email:
+        logger.warning(f"CyberShield billing: no email for {row.client_id} — invoice not sent")
+        return False
+
+    invoice_ref = row.invoice_ref or f"CS-{row.client_id.upper()[:6]}-{row.month_label.replace(' ', '-').upper()}"
+
+    try:
+        pdf_bytes = generate_cybershield_invoice(
+            client_name=client_name,
+            practice_name=enrollment.practice_name or client_name,
+            client_email=client_email,
+            month_label=row.month_label,
+            amount_excl=Decimal(str(row.amount)),
+            invoice_ref=invoice_ref,
+            due_date=row.due_date,
+            isp_name=enrollment.isp_name,
+        )
+    except Exception as exc:
+        logger.error(f"CyberShield invoice PDF failed for {row.client_id}: {exc}")
+        return False
+
+    subject = f"CyberShield Invoice — {row.month_label} ({invoice_ref})"
+    body = "\n".join([
+        f"Dear {client_name},",
+        "",
+        f"Please find attached your CyberShield invoice for {row.month_label}.",
+        f"Invoice reference: {invoice_ref}",
+        f"Amount due (incl. VAT): R {float(row.amount) * 1.15:,.2f}",
+        f"Due date: {row.due_date.strftime('%d/%m/%Y') if row.due_date else 'On receipt'}",
+        "",
+        "Please use your invoice reference when making payment.",
+        "",
+        "ZA Support | Practice IT. Perfected.",
+        "admin@zasupport.com | 064 529 5863 | zasupport.com",
+    ])
+
+    try:
+        send_email(client_email, subject, body, attachments=[(pdf_bytes, "application/pdf", f"CyberShield_Invoice_{row.month_label.replace(' ','_')}.pdf")])
+        logger.info(f"CyberShield invoice emailed to {client_email} ({invoice_ref})")
+
+        # Mark as sent
+        row.status = "sent"
+        row.invoice_ref = invoice_ref
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        return True
+    except Exception as exc:
+        logger.error(f"CyberShield invoice email failed for {row.client_id}: {exc}")
+        return False
+
+
 def get_report_pdf(db: Session, report_id: int) -> tuple[bytes | None, str]:
     """Return (pdf_bytes, filename) for a stored report, or (None, '') if not found."""
     row = db.query(CyberShieldReport).filter(CyberShieldReport.id == report_id).first()
