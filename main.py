@@ -24,6 +24,7 @@ from app.modules.workshop import notifications as _workshop_notifications  # reg
 from app.services import risk_trend_alerter as _risk_trend_alerter  # registers diagnostics.upload_received subscriber
 from app.modules.reports.router import router as reports_router
 from app.modules.cybershield.router import router as cybershield_router
+from app.modules.customer_guides.router import router as guides_router
 from app.api.agent_delivery import router as agent_delivery_router
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
 from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
@@ -86,6 +87,7 @@ app.include_router(clients_router)
 app.include_router(workshop_router)
 app.include_router(reports_router)
 app.include_router(cybershield_router)
+app.include_router(guides_router)
 app.include_router(agent_delivery_router)
 
 
@@ -118,6 +120,7 @@ async def root():
             "workshop": "/api/v1/workshop",
             "reports":  "/api/v1/reports",
             "cybershield": "/api/v1/cybershield",
+            "guides":      "/api/v1/guides",
         }
     }
 
