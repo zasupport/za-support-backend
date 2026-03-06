@@ -3,15 +3,19 @@ CyberShield router — HTTP layer only. All logic in service.py.
 Prefix: /api/v1/cybershield
 """
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.core.agent_auth import verify_agent_token
 from app.core.database import get_db
 from app.modules.cybershield import service
 from app.modules.cybershield.schemas import EnrollRequest, EnrollmentOut, ReportOut
+from app.modules.cybershield.report_generator import generate_cybershield_pdf
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/cybershield", tags=["CyberShield"])
@@ -73,6 +77,12 @@ def deactivate(client_id: str, db: Session = Depends(get_db)):
     return row
 
 
+@router.post("/enrollments/sync", dependencies=[Depends(verify_agent_token)])
+def sync_enrollments(db: Session = Depends(get_db)):
+    """Auto-enroll all SLA-tier clients not already enrolled in CyberShield."""
+    return service.sync_sla_enrollments(db)
+
+
 # ── Reports ────────────────────────────────────────────────────────────────────
 
 @router.get("/reports", response_model=dict, dependencies=[Depends(verify_agent_token)])
@@ -87,3 +97,84 @@ def list_reports(
         "data": [ReportOut.model_validate(r) for r in result["data"]],
         "meta": result["meta"],
     }
+
+
+@router.get("/reports/{client_id}/generate", dependencies=[Depends(verify_agent_token)])
+def generate_report(
+    client_id: str,
+    month: Optional[str] = Query(None, description="Month label e.g. 'February 2026' (defaults to current month)"),
+    db: Session = Depends(get_db),
+):
+    """Generate a CyberShield PDF report for an enrolled practice and return it inline."""
+    enrollment = service.get_enrollment(db, client_id)
+    if not enrollment:
+        raise HTTPException(status_code=404, detail=f"Client '{client_id}' is not enrolled in CyberShield")
+
+    # Resolve month label
+    now = datetime.now()
+    month_label = month or now.strftime("%B %Y")
+
+    # Count shield events this month
+    try:
+        shield_count = db.execute(
+            text("""
+            SELECT COUNT(*) FROM shield_events
+            WHERE timestamp >= date_trunc('month', NOW())
+              AND serial IN (
+                SELECT serial FROM client_devices WHERE client_id = :cid
+              )
+            """),
+            {"cid": client_id},
+        ).scalar() or 0
+    except Exception:
+        shield_count = 0
+
+    # Count ISP outages this month
+    try:
+        isp_count = db.execute(
+            text("""
+            SELECT COUNT(*) FROM isp_outages
+            WHERE detected_at >= date_trunc('month', NOW())
+            """),
+        ).scalar() or 0
+    except Exception:
+        isp_count = 0
+
+    # Resolve client name
+    try:
+        client_row = db.execute(
+            text("SELECT first_name, last_name FROM clients WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).fetchone()
+        client_name = f"{client_row.first_name} {client_row.last_name}".strip() if client_row else client_id
+    except Exception:
+        client_name = client_id
+
+    try:
+        pdf_bytes = generate_cybershield_pdf(
+            client_name=client_name,
+            practice_name=enrollment.practice_name or client_name,
+            isp_name=enrollment.isp_name,
+            month_label=month_label,
+            shield_event_count=int(shield_count),
+            isp_outage_count=int(isp_count),
+        )
+    except Exception as e:
+        logger.error(f"CyberShield PDF generation failed for {client_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+
+    # Log the report
+    safe_name = (enrollment.practice_name or client_name).replace(" ", "_")
+    date_str = now.strftime("%d %m %Y")
+    filename = f"CyberShield {enrollment.practice_name or client_name} {date_str}.pdf"
+    try:
+        service.record_report(db, client_id=client_id, filename=filename, month_label=month_label)
+    except Exception as e:
+        logger.warning(f"Failed to log CyberShield report: {e}")
+
+    dl_name = f"CyberShield_{safe_name}_{date_str.replace(' ', '_')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{dl_name}"'},
+    )
