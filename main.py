@@ -25,6 +25,9 @@ from app.services import risk_trend_alerter as _risk_trend_alerter  # registers 
 from app.modules.reports.router import router as reports_router
 from app.modules.cybershield.router import router as cybershield_router
 from app.modules.customer_guides.router import router as guides_router
+from app.modules.sales_crm.router import router as sales_crm_router
+from app.modules.medical_practice.router import router as medical_router
+from app.modules.deduplication.router import router as dedup_router
 from app.api.agent_delivery import router as agent_delivery_router
 from app.services.isp_scheduler import start_isp_scheduler, stop_isp_scheduler
 from app.services.automation_scheduler import start_automation_scheduler, stop_automation_scheduler
@@ -88,6 +91,9 @@ app.include_router(workshop_router)
 app.include_router(reports_router)
 app.include_router(cybershield_router)
 app.include_router(guides_router)
+app.include_router(sales_crm_router)
+app.include_router(medical_router)
+app.include_router(dedup_router)
 app.include_router(agent_delivery_router)
 
 
