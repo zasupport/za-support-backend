@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -62,6 +63,217 @@ CRIT_STYLE=_s("Normal", fontName="Helvetica-Bold", fontSize=10, textColor=CRIT_R
 HIGH_STYLE=_s("Normal", fontName="Helvetica-Bold", fontSize=10, textColor=HIGH_ORG, leading=14)
 MET_STYLE =_s("Normal", fontName="Helvetica-Bold", fontSize=9,  textColor=MET_GREEN)
 NOTMET    =_s("Normal", fontName="Helvetica-Bold", fontSize=9,  textColor=CRIT_RED)
+
+# ── Hardware validation ───────────────────────────────────────────────────────
+
+def _parse_ram_from_txt(raw_txt: str) -> Optional[float]:
+    """
+    Extract RAM (GB) from TXT diagnostic content.
+    Handles patterns such as:
+      "Memory:                     16 GB"
+      "Total RAM: 16.00 GB"
+      "  16 GB LPDDR4X"
+      "memory_total_gb: 16"
+    Returns float GB or None if not found.
+    """
+    if not raw_txt:
+        return None
+
+    # Pattern 1: "Memory: 16 GB" / "Total RAM: 16 GB" / "RAM: 16.00 GB"
+    m = re.search(
+        r'(?:memory|total[\s_]?ram|ram)[\s:]+(\d+(?:\.\d+)?)\s*GB',
+        raw_txt,
+        re.IGNORECASE,
+    )
+    if m:
+        return float(m.group(1))
+
+    # Pattern 2: standalone "16 GB" on a line (common in system_profiler output)
+    m = re.search(r'^\s*(\d+(?:\.\d+)?)\s*GB\s*$', raw_txt, re.IGNORECASE | re.MULTILINE)
+    if m:
+        val = float(m.group(1))
+        # Sanity check — ignore storage-sized values (>128 GB is likely disk not RAM)
+        if val <= 128:
+            return val
+
+    # Pattern 3: flat env-style "ram_gb: 16" or "memory_gb=16"
+    m = re.search(r'(?:ram_gb|memory_gb)[\s:=]+(\d+(?:\.\d+)?)', raw_txt, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    return None
+
+
+def _parse_storage_from_txt(raw_txt: str) -> Optional[float]:
+    """
+    Extract boot disk total storage (GB) from TXT diagnostic content.
+    Handles patterns such as:
+      "Capacity: 500.11 GB (500,107,862,016 bytes)"
+      "boot_disk_total_gb: 500"
+      "Total Storage: 500 GB"
+      "Disk /dev/disk1: 500 GB"
+    Returns float GB or None if not found.
+    """
+    if not raw_txt:
+        return None
+
+    # Pattern 1: "Capacity: NNN.NN GB" (system_profiler SPStorageDataType)
+    m = re.search(r'Capacity[\s:]+(\d+(?:\.\d+)?)\s*GB', raw_txt, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    # Pattern 2: flat env-style "boot_disk_total_gb: 500"
+    m = re.search(r'boot_disk_total_gb[\s:=]+(\d+(?:\.\d+)?)', raw_txt, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    # Pattern 3: "Total Storage: NNN GB" / "Disk /dev/disk0: NNN GB"
+    m = re.search(
+        r'(?:total[\s_]?storage|disk\s+/dev/\S+)[\s:]+(\d+(?:\.\d+)?)\s*GB',
+        raw_txt,
+        re.IGNORECASE,
+    )
+    if m:
+        return float(m.group(1))
+
+    return None
+
+
+def _parse_ram_from_json(payload: dict) -> Optional[float]:
+    """Extract RAM (GB) from JSON diagnostic payload. Tries multiple field names."""
+    hw = payload.get("hardware", {})
+
+    # Direct GB field
+    for key in ("ram_gb", "total_ram_gb", "memory_gb"):
+        v = hw.get(key) or payload.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+
+    # String field like "16 GB" or "16384 MB"
+    for key in ("memory", "ram", "total_ram", "total_memory"):
+        raw = hw.get(key) or payload.get(key)
+        if not raw:
+            continue
+        raw_str = str(raw).strip()
+        m = re.match(r'^(\d+(?:\.\d+)?)\s*GB', raw_str, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+        m = re.match(r'^(\d+(?:\.\d+)?)\s*MB', raw_str, re.IGNORECASE)
+        if m:
+            return round(float(m.group(1)) / 1024, 1)
+
+    return None
+
+
+def _parse_storage_from_json(payload: dict) -> Optional[float]:
+    """Extract boot disk total storage (GB) from JSON diagnostic payload."""
+    stor = payload.get("storage", {})
+
+    for key in ("boot_disk_total_gb", "total_gb", "disk_total_gb", "total_storage_gb"):
+        v = stor.get(key) or payload.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+
+    return None
+
+
+def validate_hardware_sources(
+    payload: dict,
+    raw_txt: Optional[str] = None,
+) -> dict:
+    """
+    Cross-check hardware values (RAM, storage) between JSON and TXT diagnostic sources.
+
+    Rules:
+    - If both sources agree within 10%: use JSON value (canonical structured data).
+    - If they disagree by >10%: log WARNING and use TXT value (comes from system_profiler
+      directly — more reliable than JSON which may have been parsed/transformed).
+    - If only one source is available: use it and log which one.
+
+    Returns a dict with validated hardware fields and source metadata:
+    {
+        "ram_gb":             float | None,
+        "storage_total_gb":   float | None,
+        "_hardware_source": {
+            "ram":     "json" | "txt" | "json_only" | "txt_only" | "unavailable",
+            "storage": "json" | "txt" | "json_only" | "txt_only" | "unavailable",
+        }
+    }
+    """
+    result: dict = {"_hardware_source": {}}
+
+    # ── RAM ───────────────────────────────────────────────────────────────────
+    ram_json = _parse_ram_from_json(payload)
+    ram_txt  = _parse_ram_from_txt(raw_txt)
+
+    if ram_json is not None and ram_txt is not None:
+        diff_pct = abs(ram_json - ram_txt) / max(ram_txt, 0.1) * 100
+        if diff_pct > 10:
+            logger.warning(
+                "HARDWARE VALIDATION: RAM mismatch — JSON reports %.1f GB, TXT reports %.1f GB "
+                "(%.0f%% difference). Using TXT value (system_profiler source).",
+                ram_json, ram_txt, diff_pct,
+            )
+            result["ram_gb"] = ram_txt
+            result["_hardware_source"]["ram"] = "txt"
+        else:
+            result["ram_gb"] = ram_json
+            result["_hardware_source"]["ram"] = "json"
+    elif ram_json is not None:
+        logger.info("HARDWARE VALIDATION: RAM from JSON only (%.1f GB) — no TXT value.", ram_json)
+        result["ram_gb"] = ram_json
+        result["_hardware_source"]["ram"] = "json_only"
+    elif ram_txt is not None:
+        logger.info("HARDWARE VALIDATION: RAM from TXT only (%.1f GB) — no JSON value.", ram_txt)
+        result["ram_gb"] = ram_txt
+        result["_hardware_source"]["ram"] = "txt_only"
+    else:
+        logger.warning("HARDWARE VALIDATION: RAM could not be determined from either source.")
+        result["ram_gb"] = None
+        result["_hardware_source"]["ram"] = "unavailable"
+
+    # ── Storage ───────────────────────────────────────────────────────────────
+    stor_json = _parse_storage_from_json(payload)
+    stor_txt  = _parse_storage_from_txt(raw_txt)
+
+    if stor_json is not None and stor_txt is not None:
+        diff_pct = abs(stor_json - stor_txt) / max(stor_txt, 0.1) * 100
+        if diff_pct > 10:
+            logger.warning(
+                "HARDWARE VALIDATION: Storage mismatch — JSON reports %.1f GB, TXT reports %.1f GB "
+                "(%.0f%% difference). Using TXT value (system_profiler source).",
+                stor_json, stor_txt, diff_pct,
+            )
+            result["storage_total_gb"] = stor_txt
+            result["_hardware_source"]["storage"] = "txt"
+        else:
+            result["storage_total_gb"] = stor_json
+            result["_hardware_source"]["storage"] = "json"
+    elif stor_json is not None:
+        logger.info(
+            "HARDWARE VALIDATION: Storage from JSON only (%.1f GB) — no TXT value.", stor_json
+        )
+        result["storage_total_gb"] = stor_json
+        result["_hardware_source"]["storage"] = "json_only"
+    elif stor_txt is not None:
+        logger.info(
+            "HARDWARE VALIDATION: Storage from TXT only (%.1f GB) — no JSON value.", stor_txt
+        )
+        result["storage_total_gb"] = stor_txt
+        result["_hardware_source"]["storage"] = "txt_only"
+    else:
+        logger.warning("HARDWARE VALIDATION: Storage could not be determined from either source.")
+        result["storage_total_gb"] = None
+        result["_hardware_source"]["storage"] = "unavailable"
+
+    return result
+
 
 # ── Canvas callbacks ──────────────────────────────────────────────────────────
 
@@ -301,11 +513,24 @@ def generate_cyberpulse_pdf(
     payload:     dict,
     scan_date:   Optional[str] = None,
     reason:      str = "Routine Health Check Scout diagnostic assessment.",
+    raw_txt:     Optional[str] = None,
 ) -> bytes:
     """
     Generate the full 7-page CyberPulse Assessment PDF.
     Returns raw PDF bytes.
+
+    raw_txt: optional raw TXT diagnostic content from diagnostic_snapshots.raw_txt.
+             When provided, hardware values (RAM, storage) are cross-validated against
+             the JSON payload before any PDF content is built.
     """
+    # ── Pre-report hardware validation ────────────────────────────────────────
+    hw_validated = validate_hardware_sources(payload, raw_txt)
+    logger.info(
+        "Hardware validation complete — RAM source: %s, Storage source: %s",
+        hw_validated["_hardware_source"].get("ram", "unknown"),
+        hw_validated["_hardware_source"].get("storage", "unknown"),
+    )
+
     buf = io.BytesIO()
 
     # Attach metadata to doc for use in canvas callbacks
@@ -350,14 +575,29 @@ def generate_cyberpulse_pdf(
     scan_dt = scan_date or datetime.now().strftime("%d/%m/%Y %H:%M")
     model   = hw.get("model", "Mac")
     cpu     = hw.get("cpu") or hw.get("chip_type", "")
-    ram     = f"{hw.get('ram_gb', '—')} GB" if hw.get("ram_gb") else "—"
+
+    # Use validated RAM (cross-checked JSON vs TXT — TXT wins on disagreement)
+    _validated_ram_gb = hw_validated.get("ram_gb")
+    _ram_source       = hw_validated["_hardware_source"].get("ram", "json_only")
+    if _validated_ram_gb is not None:
+        ram = f"{int(_validated_ram_gb) if _validated_ram_gb == int(_validated_ram_gb) else _validated_ram_gb} GB"
+    else:
+        ram = "—"
+
     macos_v = macos.get("version") or hw.get("macos_version") or "—"
     bat_h   = f"{bat.get('health_pct', '—')}%" if bat.get("health_pct") else "—"
     bat_c   = bat.get("cycles", "—")
     battery_str = f"{bat_h} health, {bat_c} cycles"
     wifi    = net.get("wifi_ssid", "") or "—"
     disk_u  = f"{stor.get('boot_disk_used_pct', '—')}% used" if stor.get("boot_disk_used_pct") else "—"
-    disk_f  = f"{stor.get('boot_disk_free_gb', '—')} GB free" if stor.get("boot_disk_free_gb") else ""
+
+    # Use validated storage total (cross-checked JSON vs TXT — TXT wins on disagreement)
+    _validated_stor_gb = hw_validated.get("storage_total_gb")
+    _stor_source       = hw_validated["_hardware_source"].get("storage", "json_only")
+    if _validated_stor_gb is not None:
+        disk_f = f"{stor.get('boot_disk_free_gb', '—')} GB free"
+    else:
+        disk_f  = f"{stor.get('boot_disk_free_gb', '—')} GB free" if stor.get("boot_disk_free_gb") else ""
     disk_str= f"{disk_u}{', ' + disk_f if disk_f else ''}"
 
     story.append(Paragraph("Device Summary", H1))
@@ -377,6 +617,8 @@ def generate_cyberpulse_pdf(
         ["Scan Date",         scan_dt],
         ["Analysis Depth",    "120 diagnostic checkpoints verified against\nover 14 billion known compromised records"],
     ]
+    # Attach hardware source metadata to doc for audit trail (not rendered in PDF body)
+    doc._za_hardware_source = hw_validated["_hardware_source"]
     story.append(_teal_table(
         [[Paragraph(str(c), CELLB if r == 0 else (CELLB if i == 0 else CELL))
           for i, c in enumerate(row)]

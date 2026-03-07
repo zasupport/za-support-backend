@@ -87,6 +87,7 @@ def generate_report(
     hostname    = (device or {}).get("hostname") or snap["serial"]
     serial      = snap["serial"]
     payload     = snap.get("raw_json") or {}
+    raw_txt     = snap.get("raw_txt")  # TXT diagnostic content for hardware cross-validation
     scan_date   = None
     if snap.get("scan_date"):
         try:
@@ -108,6 +109,7 @@ def generate_report(
             payload=payload,
             scan_date=scan_date,
             reason=reason,
+            raw_txt=raw_txt,
         )
     except Exception as e:
         logger.error(f"PDF generation failed for {client_id}: {e}", exc_info=True)
