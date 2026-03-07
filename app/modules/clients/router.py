@@ -30,18 +30,102 @@ router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
 
 
 def _verify_formbricks_signature(request: Request, body: bytes) -> bool:
-    """Verify Formbricks webhook HMAC-SHA256 signature."""
+    """Verify Formbricks webhook HMAC-SHA256 signature.
+
+    Formbricks sends the signature in the 'x-webhook-signature' header
+    as a raw hex digest (no 'sha256=' prefix).
+    """
     secret = getattr(settings, "FORMBRICKS_WEBHOOK_SECRET", None)
     if not secret:
-        # No secret configured — allow through (set secret in production)
+        # No secret configured — allow through (warn loudly)
         logger.warning("FORMBRICKS_WEBHOOK_SECRET not set — skipping signature verification")
         return True
-    sig = request.headers.get("x-formbricks-signature-256", "")
-    expected = "sha256=" + hmac.new(key=secret.encode(), msg=body, digestmod=hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, expected)
+    sig_header = request.headers.get("x-webhook-signature", "")
+    if not sig_header:
+        logger.warning("Formbricks webhook received with no x-webhook-signature header")
+        return False
+    expected = hmac.new(key=secret.encode(), msg=body, digestmod=hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig_header, expected)
 
 
-# ── Public Webhook Endpoints (Formbricks) ─────────────────────────────────────
+# ── Unified Formbricks Webhook ────────────────────────────────────────────────
+
+@router.post("/webhook/formbricks", status_code=200)
+async def formbricks_unified_webhook(request: Request, background: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Unified Formbricks webhook endpoint.
+    Set this URL for BOTH forms in Formbricks:
+        POST https://api.zasupport.com/api/v1/clients/webhook/formbricks
+
+    Dispatches to intake or check-in logic based on the 'type' field in the
+    Formbricks payload (data.survey.name or data.type).
+
+    Formbricks payload shape:
+        {
+          "event": "responseCreated" | "responseFinished" | "responseUpdated",
+          "data": {
+            "id": "<response_id>",
+            "survey": { "id": "<survey_id>", "name": "<form_name>" },
+            "data": { "<question_id>": <answer>, ... }
+          }
+        }
+
+    Returns:
+        200 { "status": "ok", ... }          — processed
+        200 { "status": "ignored", ... }      — skipped event type
+        401 { "detail": "..." }               — bad signature
+        422 { "detail": "..." }               — payload could not be mapped
+    """
+    body = await request.body()
+
+    # HMAC validation MUST happen before any DB operations
+    if not _verify_formbricks_signature(request, body):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        raw = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="Webhook body is not valid JSON")
+
+    event = raw.get("event", "")
+    if event not in ("responseCreated", "responseFinished", "responseUpdated"):
+        return {"status": "ignored", "event": event}
+
+    # Determine form type from survey name (case-insensitive substring match)
+    survey_name: str = (raw.get("data", {}).get("survey", {}).get("name") or "").lower()
+
+    if "check" in survey_name or "checkin" in survey_name or "pre-visit" in survey_name or "pre_visit" in survey_name:
+        # ── Pre-Visit Check-In Form ───────────────────────────────────────────
+        payload = service.map_formbricks_checkin(raw)
+        if not payload:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not map Formbricks check-in payload — check field IDs in service.py",
+            )
+        checkin = service.create_checkin(db, payload)
+        logger.info(f"Formbricks unified webhook: check-in created for client {payload.client_id}")
+        return {"status": "ok", "form_type": "checkin", "checkin_id": checkin.id}
+
+    else:
+        # ── New Client Intake Form (default) ──────────────────────────────────
+        payload = service.map_formbricks_intake(raw)
+        if not payload:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not map Formbricks intake payload — check field IDs in service.py",
+            )
+        client = service.create_client(db, payload)
+        background.add_task(emit_event, "client.created", {
+            "client_id": client.client_id,
+            "email": client.email,
+            "has_business": client.has_business,
+            "urgency_level": client.urgency_level,
+        })
+        logger.info(f"Formbricks unified webhook: client created/upserted — {client.client_id}")
+        return {"status": "ok", "form_type": "intake", "client_id": client.client_id}
+
+
+# ── Public Webhook Endpoints (Formbricks — per-form, kept for backwards compat) ─
 
 @router.post("/intake/webhook", status_code=200)
 async def formbricks_intake_webhook(request: Request, background: BackgroundTasks, db: Session = Depends(get_db)):
