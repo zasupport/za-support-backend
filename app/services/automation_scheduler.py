@@ -35,6 +35,7 @@ import app.services.risk_trend_alerter       # noqa: F401 — registers diagnost
 from app.services.breach_scanner_scheduler import run_breach_scan
 from app.services.checkin_trigger import run_checkin_trigger
 from app.services.investec_scanner import run_investec_scanner
+from app.services.unifi_poller import run_unifi_cloud_poll
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ JOB_DEFS = [
     ("breach_scan_weekly",     "Breach Scanner Weekly Run",    run_breach_scan,              {"trigger": "cron", "day_of_week": "mon", "hour": 5, "minute": 0}),
     ("checkin_trigger",        "6-Month Check-In Trigger",     run_checkin_trigger,          {"trigger": "cron", "hour": 9, "minute": 30}),
     ("investec_scanner",       "Investec Client Email Scanner", run_investec_scanner,         {"trigger": "cron", "hour": 8, "minute": 0}),
+    ("unifi_cloud_poll",       "UniFi Network Cloud Poll",     run_unifi_cloud_poll,         {"trigger": "interval", "minutes": 5}),
     ("stale_device_check",   "Stale Device Detector",     None, {"trigger": "interval", "hours": 1}),
     ("security_posture_scan","Security Posture Scanner",   None, {"trigger": "interval", "hours": 12}),
     ("event_cleanup",    "Event Log Cleanup (90d)",        None, {"trigger": "cron", "day": 1, "hour": 3}),

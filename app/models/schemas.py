@@ -453,3 +453,99 @@ class ISPDashboard(BaseModel):
     unknown_count: int = 0
     active_outages: List[ISPOutageResponse] = []
     providers: List[ISPProviderStatus] = []
+
+
+# ---------- UniFi Network Integration ----------
+
+class UniFiSnapshotSubmit(BaseModel):
+    """Payload from local poller or cloud poller — one poll cycle."""
+    client_id:          str
+    controller_id:      str
+    source:             str = "local"           # 'local' | 'cloud'
+    wan_status:         Optional[str] = None    # 'online' | 'offline' | 'unknown'
+    wan_ip:             Optional[str] = None
+    wan_rx_bytes:       Optional[int] = None
+    wan_tx_bytes:       Optional[int] = None
+    wan_rx_mbps:        Optional[float] = None
+    wan_tx_mbps:        Optional[float] = None
+    wan_latency_ms:     Optional[float] = None
+    connected_clients:  Optional[int] = None
+    wireless_clients:   Optional[int] = None
+    wired_clients:      Optional[int] = None
+    devices_total:      Optional[int] = None
+    devices_online:     Optional[int] = None
+    site_name:          Optional[str] = None
+    uptime_seconds:     Optional[int] = None
+    raw_json:           Optional[Dict[str, Any]] = None
+    devices:            Optional[List[Dict[str, Any]]] = None  # list of device dicts
+
+
+class UniFiDeviceOut(BaseModel):
+    mac:              str
+    name:             Optional[str] = None
+    model:            Optional[str] = None
+    type:             Optional[str] = None
+    ip:               Optional[str] = None
+    status:           Optional[str] = None
+    uptime_seconds:   Optional[int] = None
+    firmware_version: Optional[str] = None
+    last_seen:        Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UniFiSnapshotOut(BaseModel):
+    id:               str
+    client_id:        str
+    controller_id:    str
+    polled_at:        datetime
+    source:           str
+    wan_status:       Optional[str] = None
+    wan_ip:           Optional[str] = None
+    wan_rx_mbps:      Optional[float] = None
+    wan_tx_mbps:      Optional[float] = None
+    wan_latency_ms:   Optional[float] = None
+    connected_clients: Optional[int] = None
+    wireless_clients:  Optional[int] = None
+    wired_clients:     Optional[int] = None
+    devices_total:     Optional[int] = None
+    devices_online:    Optional[int] = None
+    site_name:         Optional[str] = None
+    uptime_seconds:    Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UniFiLiveStatus(BaseModel):
+    client_id:        str
+    controller_id:    str
+    as_of:            Optional[datetime] = None
+    wan_status:       str = "unknown"
+    wan_ip:           Optional[str] = None
+    wan_rx_mbps:      Optional[float] = None
+    wan_tx_mbps:      Optional[float] = None
+    wan_latency_ms:   Optional[float] = None
+    connected_clients: Optional[int] = None
+    wireless_clients:  Optional[int] = None
+    wired_clients:     Optional[int] = None
+    devices_total:     Optional[int] = None
+    devices_online:    Optional[int] = None
+    site_name:         Optional[str] = None
+    uptime_hours:      Optional[float] = None
+    source:            str = "unknown"
+    stale:             bool = False             # True if last poll > 15 min ago
+    devices:           List[UniFiDeviceOut] = []
+
+
+class UniFiControllerConfigCreate(BaseModel):
+    client_id:          str
+    controller_host:    str
+    controller_port:    int = 443
+    username:           Optional[str] = None
+    password:           Optional[str] = None    # plain — encrypted on save
+    cloud_api_key:      Optional[str] = None    # UI.com key — encrypted on save
+    site_name:          str = "default"
+    poll_interval_sec:  int = 300
+    notes:              Optional[str] = None

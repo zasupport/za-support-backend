@@ -466,3 +466,92 @@ class NotificationLog(Base):
     status = Column(String(16), default="sent")
     error = Column(Text, nullable=True)
     sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# ══════════════════════════════════════════════════════════════
+# UniFi Network Integration — under Network module
+# Supports: UniFi Express 7, UniFi Cloud (api.ui.com)
+# Clients: Dr Evan Shoul (gateway 192.168.1.252), Charles Chemel
+# ══════════════════════════════════════════════════════════════
+
+class UniFiSnapshot(Base):
+    """
+    Time-series WAN + client + device snapshot per poll cycle (default 5 min).
+    Populated by the cloud poller (api.ui.com) or local poller script.
+    """
+    __tablename__ = "unifi_snapshots"
+
+    id               = Column(String(36), primary_key=True, default=lambda: str(__import__("uuid").uuid4()))
+    client_id        = Column(String(100), nullable=False, index=True)
+    controller_id    = Column(String(128), nullable=False, index=True)
+    polled_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    source           = Column(String(20), default="local")      # 'cloud' | 'local'
+    wan_status       = Column(String(20))                       # 'online' | 'offline' | 'unknown'
+    wan_ip           = Column(String(45))
+    wan_rx_bytes     = Column(Integer)
+    wan_tx_bytes     = Column(Integer)
+    wan_rx_mbps      = Column(Float)
+    wan_tx_mbps      = Column(Float)
+    wan_latency_ms   = Column(Float)
+    connected_clients  = Column(Integer)
+    wireless_clients   = Column(Integer)
+    wired_clients      = Column(Integer)
+    devices_total      = Column(Integer)
+    devices_online     = Column(Integer)
+    site_name          = Column(String(200))
+    uptime_seconds     = Column(Integer)
+    raw_json           = Column(JSON)
+
+    __table_args__ = (
+        Index("ix_unifi_snapshots_client_ts",     "client_id",     "polled_at"),
+        Index("ix_unifi_snapshots_controller_ts", "controller_id", "polled_at"),
+    )
+
+
+class UniFiDeviceState(Base):
+    """
+    Latest known state per physical UniFi device (gateway, switch, AP).
+    Upserted on every poll — one row per MAC address per client.
+    """
+    __tablename__ = "unifi_device_state"
+
+    id               = Column(String(36), primary_key=True, default=lambda: str(__import__("uuid").uuid4()))
+    client_id        = Column(String(100), nullable=False, index=True)
+    controller_id    = Column(String(128), nullable=False)
+    mac              = Column(String(20), nullable=False)
+    name             = Column(String(200))
+    model            = Column(String(100))
+    type             = Column(String(50))     # 'ugw' | 'usw' | 'uap' | 'udm'
+    ip               = Column(String(45))
+    status           = Column(String(20))     # 'online' | 'offline' | 'adopting'
+    uptime_seconds   = Column(Integer)
+    firmware_version = Column(String(50))
+    last_seen        = Column(DateTime)
+    updated_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_unifi_device_client", "client_id"),
+        __import__("sqlalchemy").UniqueConstraint("client_id", "mac", name="uq_unifi_device_client_mac"),
+    )
+
+
+class UniFiControllerConfig(Base):
+    """
+    Per-client UniFi controller credentials and polling configuration.
+    Passwords stored encrypted via app encryption key.
+    """
+    __tablename__ = "unifi_controller_config"
+
+    id                = Column(String(36), primary_key=True, default=lambda: str(__import__("uuid").uuid4()))
+    client_id         = Column(String(100), nullable=False, unique=True)
+    controller_host   = Column(String(255), nullable=False)   # e.g. 192.168.1.252
+    controller_port   = Column(Integer, default=443)
+    username          = Column(Text)
+    password_enc      = Column(Text)                          # Fernet encrypted
+    cloud_api_key_enc = Column(Text)                          # UI.com API key, encrypted
+    site_name         = Column(String(100), default="default")
+    poll_interval_sec = Column(Integer, default=300)
+    enabled           = Column(Boolean, default=True)
+    notes             = Column(Text)
+    created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
